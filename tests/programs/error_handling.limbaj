@@ -1,0 +1,13 @@
+fn safe_divide(x: i64, y: i64) -> i64 {
+    if y == 0 {
+        return -999;
+    }
+    return x / y;
+}
+
+fn main() -> i64 {
+    let result1 = safe_divide(10, 2);
+    let result2 = safe_divide(20, 4);
+    let result3 = safe_divide(100, 5);
+    return result1 + result2 + result3;
+}

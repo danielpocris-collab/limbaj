@@ -1,0 +1,32 @@
+fn is_divisible_by_15(n: i64) -> bool {
+    return n % 15 == 0;
+}
+
+fn is_divisible_by_3(n: i64) -> bool {
+    return n % 3 == 0;
+}
+
+fn is_divisible_by_5(n: i64) -> bool {
+    return n % 5 == 0;
+}
+
+fn fizzbuzz(n: i64) -> i64 {
+    if is_divisible_by_15(n) {
+        return 15;
+    }
+    if is_divisible_by_3(n) {
+        return 3;
+    }
+    if is_divisible_by_5(n) {
+        return 5;
+    }
+    return n;
+}
+
+fn main() -> i64 {
+    let r1 = fizzbuzz(1);
+    let r3 = fizzbuzz(3);
+    let r5 = fizzbuzz(5);
+    let r15 = fizzbuzz(15);
+    return r1 + r3 + r5 + r15;
+}
