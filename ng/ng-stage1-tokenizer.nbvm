@@ -1,0 +1,940 @@
+# ng Stage 1 — Tokenizer + Minimal Parser
+# Written in nbvm bytecode assembly (human-readable form).
+# This is what stage1 IS — a program for the seed VM
+# that reads ng source and emits a flat token stream.
+#
+# Output format: binary token stream
+#   each token = 2 bytes tag + 4 bytes start + 4 bytes len
+#   (10 bytes per token, simple to parse in stage2)
+#
+# Token tags:
+#   0x01  IDENT
+#   0x02  INT
+#   0x03  FLOAT
+#   0x04  STRING
+#   0x05  CHAR
+#   0x06  PUNCT   (single/double char punctuation)
+#   0x07  KW_FN
+#   0x08  KW_LET
+#   0x09  KW_VAR
+#   0x0A  KW_IF
+#   0x0B  KW_ELSE
+#   0x0C  KW_MATCH
+#   0x0D  KW_LOOP
+#   0x0E  KW_WHILE
+#   0x0F  KW_FOR
+#   0x10  KW_IN
+#   0x11  KW_RETURN
+#   0x12  KW_TYPE
+#   0x13  KW_ENUM
+#   0x14  KW_IMPL
+#   0x15  KW_TRAIT
+#   0x16  KW_EXTERN
+#   0x17  KW_UNSAFE
+#   0x18  KW_IMPORT
+#   0x19  KW_EXPORT
+#   0x1A  KW_MODULE
+#   0x1B  KW_EFFECT
+#   0x1C  KW_HANDLE
+#   0x1D  KW_RESUME
+#   0x1E  KW_SPAWN
+#   0x1F  KW_AWAIT
+#   0x20  KW_COMPTIME
+#   0x21  KW_CONST
+#   0x22  KW_STATIC
+#   0x23  KW_TRUE
+#   0x24  KW_FALSE
+#   0x25  KW_AS
+#   0x26  KW_MOVE
+#   0x27  KW_DYN
+#   0x28  KW_SELF
+#   0x29  KW_UNIT
+#   0x2A  KW_NEVER
+#   0xFE  NEWLINE  (significant for module-level parsing)
+#   0xFF  EOF
+
+# ─────────────────────────────────────────────────────────────
+# MEMORY LAYOUT (inside nbvm)
+# ─────────────────────────────────────────────────────────────
+#
+# .data section (read-only):
+#   src_buf:    [65536 bytes]  — source file loaded here
+#   out_buf:    [65536 bytes]  — token stream written here
+#   kw_table:   keyword strings and their tags (packed)
+#
+# Locals used (frame-based):
+#   local[0] = src_ptr   (current position in src_buf)
+#   local[1] = src_end   (src_ptr + file_size)
+#   local[2] = out_ptr   (current position in out_buf)
+#   local[3] = out_base  (start of out_buf, for final write)
+#   local[4] = tok_start (start offset of current token)
+#   local[5] = ch        (current character, 0-255)
+
+# ─────────────────────────────────────────────────────────────
+# BYTECODE ASSEMBLY (nbvm assembly notation)
+# ─────────────────────────────────────────────────────────────
+# This is human-readable. A trivial assembler converts it to
+# raw bytes using the opcode table from ng-bytecode-vm.md.
+#
+# Notation:
+#   label:          defines a jump target
+#   INSTR arg       instruction with immediate
+#   ; comment
+#
+# Helper macros (expanded by assembler):
+#   PUSH addr_of(X)    → PUSH_I64 <resolved address>
+#   call(label)        → CALL <relative offset>
+#   jmp(label)         → JUMP <relative offset>
+#   jz(label)          → JUMP_Z <relative offset>
+#   jnz(label)         → JUMP_NZ <relative offset>
+
+; ── main ────────────────────────────────────────────────────
+
+main:
+    ENTER 6                 ; 6 locals (src_ptr..ch)
+
+    ; allocate src_buf (64KB)
+    PUSH_I64 65536
+    ALLOC
+    STORE_LOCAL 0           ; src_ptr = alloc(64KB)
+
+    ; read source from stdin
+    PUSH_I64 65536          ; count
+    LOAD_LOCAL 0            ; buf
+    PUSH_I8 0               ; fd = stdin
+    SYSCALL 1               ; bytes_read = read(0, src_buf, 64K)
+                            ; stack: [bytes_read]
+
+    ; src_end = src_ptr + bytes_read
+    LOAD_LOCAL 0
+    ADD
+    STORE_LOCAL 1           ; src_end = src_ptr + bytes_read
+
+    ; allocate out_buf (64KB)
+    PUSH_I64 65536
+    ALLOC
+    DUP
+    STORE_LOCAL 2           ; out_ptr = alloc
+    STORE_LOCAL 3           ; out_base = same
+
+    ; ── tokenize loop ───────────────────────────────────────
+tokenize_loop:
+    ; skip whitespace (spaces, tabs, \r)
+    call(skip_whitespace)
+
+    ; check if at end
+    LOAD_LOCAL 0            ; src_ptr
+    LOAD_LOCAL 1            ; src_end
+    LTU                     ; src_ptr < src_end ?
+    PUSH_I8 0
+    EQ                      ; == 0 means NOT less, i.e. at/past end
+    jnz(emit_eof)
+
+    ; peek current char
+    LOAD_LOCAL 0
+    LOAD8                   ; ch = *src_ptr
+    STORE_LOCAL 5
+
+    ; save tok_start = src_ptr
+    LOAD_LOCAL 0
+    STORE_LOCAL 4
+
+    ; ── dispatch on first char ──────────────────────────────
+
+    ; newline?
+    LOAD_LOCAL 5
+    PUSH_I8 10              ; '\n'
+    EQ
+    jnz(lex_newline)
+
+    ; alpha or '_' → identifier or keyword
+    LOAD_LOCAL 5
+    call(is_alpha_or_underscore)
+    jnz(lex_ident)
+
+    ; digit → integer or float
+    LOAD_LOCAL 5
+    call(is_digit)
+    jnz(lex_number)
+
+    ; '"' → string literal
+    LOAD_LOCAL 5
+    PUSH_I8 34              ; '"'
+    EQ
+    jnz(lex_string)
+
+    ; '\'' → char literal
+    LOAD_LOCAL 5
+    PUSH_I8 39              ; '\''
+    EQ
+    jnz(lex_char)
+
+    ; '/' → check for comment or punct
+    LOAD_LOCAL 5
+    PUSH_I8 47              ; '/'
+    EQ
+    jnz(lex_slash)
+
+    ; otherwise: punctuation
+    jmp(lex_punct)
+
+; ── emit EOF and write output ────────────────────────────────
+emit_eof:
+    PUSH_I8 0xFF            ; tag = EOF
+    PUSH_I64 0              ; start = 0
+    PUSH_I64 0              ; len = 0
+    call(emit_token)
+
+    ; write output to stdout
+    LOAD_LOCAL 2            ; out_ptr (current end)
+    LOAD_LOCAL 3            ; out_base (start)
+    SUB                     ; length = out_ptr - out_base
+
+    LOAD_LOCAL 3            ; buf
+    PUSH_I8 1               ; fd = stdout
+    SYSCALL 2               ; write(1, out_buf, length)
+    POP
+
+    ; exit 0
+    PUSH_I8 0
+    SYSCALL 0
+
+; ── skip_whitespace ──────────────────────────────────────────
+; Advances src_ptr past spaces (0x20), tabs (0x09), \r (0x0D)
+; Does NOT skip \n (it's a token)
+skip_whitespace:
+    ENTER 0
+sw_loop:
+    LOAD_LOCAL 0            ; (outer frame local 0 = src_ptr)
+    LOAD_LOCAL 1            ; src_end
+    LTU
+    PUSH_I8 0
+    EQ
+    jnz(sw_done)            ; at end → done
+
+    LOAD_LOCAL 0
+    LOAD8                   ; ch = *src_ptr
+    DUP
+    PUSH_I8 32              ; ' '
+    EQ
+    jnz(sw_advance)
+    DUP
+    PUSH_I8 9               ; '\t'
+    EQ
+    jnz(sw_advance)
+    PUSH_I8 13              ; '\r'
+    EQ
+    jnz(sw_advance)
+    jmp(sw_done)
+sw_advance:
+    POP
+    LOAD_LOCAL 0
+    PUSH_I8 1
+    ADD
+    STORE_LOCAL 0           ; src_ptr++
+    jmp(sw_loop)
+sw_done:
+    POP
+    LEAVE
+    RET
+
+; ── lex_newline ──────────────────────────────────────────────
+lex_newline:
+    ; advance past '\n'
+    LOAD_LOCAL 0
+    PUSH_I8 1
+    ADD
+    STORE_LOCAL 0
+
+    PUSH_I8 0xFE            ; tag = NEWLINE
+    LOAD_LOCAL 4            ; start
+    PUSH_I8 1               ; len = 1
+    call(emit_token)
+    jmp(tokenize_loop)
+
+; ── lex_ident ────────────────────────────────────────────────
+; Reads [a-zA-Z_][a-zA-Z0-9_]* then checks keyword table
+lex_ident:
+li_loop:
+    LOAD_LOCAL 0
+    LOAD_LOCAL 1
+    LTU
+    PUSH_I8 0
+    EQ
+    jnz(li_done)
+
+    LOAD_LOCAL 0
+    LOAD8
+    call(is_ident_cont)
+    PUSH_I8 0
+    EQ
+    jnz(li_done)
+
+    LOAD_LOCAL 0
+    PUSH_I8 1
+    ADD
+    STORE_LOCAL 0           ; src_ptr++
+    jmp(li_loop)
+li_done:
+    ; try keyword lookup
+    LOAD_LOCAL 4            ; tok_start (ptr into src)
+    LOAD_LOCAL 0            ; tok_end
+    LOAD_LOCAL 0
+    LOAD_LOCAL 4
+    SUB                     ; length
+    call(keyword_lookup)    ; returns tag (IDENT=0x01 if not keyword)
+    STORE_LOCAL 5           ; tag
+
+    LOAD_LOCAL 5
+    LOAD_LOCAL 4            ; start offset (ptr value)
+    LOAD_LOCAL 0
+    LOAD_LOCAL 4
+    SUB                     ; len
+    call(emit_token)
+    jmp(tokenize_loop)
+
+; ── lex_number ───────────────────────────────────────────────
+lex_number:
+    ; advance while digit (simplified — no float/hex/binary for now)
+ln_loop:
+    LOAD_LOCAL 0
+    LOAD_LOCAL 1
+    LTU
+    PUSH_I8 0
+    EQ
+    jnz(ln_done)
+
+    LOAD_LOCAL 0
+    LOAD8
+    call(is_digit)
+    PUSH_I8 0
+    EQ
+    jnz(ln_done)
+
+    LOAD_LOCAL 0
+    PUSH_I8 1
+    ADD
+    STORE_LOCAL 0
+    jmp(ln_loop)
+ln_done:
+    PUSH_I8 0x02            ; tag = INT
+    LOAD_LOCAL 4
+    LOAD_LOCAL 0
+    LOAD_LOCAL 4
+    SUB
+    call(emit_token)
+    jmp(tokenize_loop)
+
+; ── lex_string ───────────────────────────────────────────────
+lex_string:
+    LOAD_LOCAL 0
+    PUSH_I8 1
+    ADD
+    STORE_LOCAL 0           ; skip opening '"'
+ls_loop:
+    LOAD_LOCAL 0
+    LOAD_LOCAL 1
+    LTU
+    PUSH_I8 0
+    EQ
+    jnz(ls_done)            ; truncated string at EOF
+
+    LOAD_LOCAL 0
+    LOAD8                   ; ch
+    DUP
+    PUSH_I8 34              ; '"'
+    EQ
+    jnz(ls_close)
+    DUP
+    PUSH_I8 92              ; '\\'
+    EQ
+    jnz(ls_escape)
+
+    POP
+    LOAD_LOCAL 0
+    PUSH_I8 1
+    ADD
+    STORE_LOCAL 0
+    jmp(ls_loop)
+ls_escape:
+    POP
+    LOAD_LOCAL 0
+    PUSH_I8 2
+    ADD
+    STORE_LOCAL 0           ; skip '\\' + next char
+    jmp(ls_loop)
+ls_close:
+    POP
+    LOAD_LOCAL 0
+    PUSH_I8 1
+    ADD
+    STORE_LOCAL 0           ; skip closing '"'
+ls_done:
+    PUSH_I8 0x04            ; tag = STRING
+    LOAD_LOCAL 4
+    LOAD_LOCAL 0
+    LOAD_LOCAL 4
+    SUB
+    call(emit_token)
+    jmp(tokenize_loop)
+
+; ── lex_char ─────────────────────────────────────────────────
+lex_char:
+    LOAD_LOCAL 0
+    PUSH_I8 1
+    ADD
+    STORE_LOCAL 0           ; skip '\''
+    ; skip body (handle escape)
+    LOAD_LOCAL 0
+    LOAD8
+    PUSH_I8 92              ; '\\'
+    EQ
+    jnz(lc_escape)
+    LOAD_LOCAL 0
+    PUSH_I8 1
+    ADD
+    STORE_LOCAL 0
+    jmp(lc_close)
+lc_escape:
+    LOAD_LOCAL 0
+    PUSH_I8 2
+    ADD
+    STORE_LOCAL 0
+lc_close:
+    ; skip closing '\''
+    LOAD_LOCAL 0
+    PUSH_I8 1
+    ADD
+    STORE_LOCAL 0
+    PUSH_I8 0x05            ; tag = CHAR
+    LOAD_LOCAL 4
+    LOAD_LOCAL 0
+    LOAD_LOCAL 4
+    SUB
+    call(emit_token)
+    jmp(tokenize_loop)
+
+; ── lex_slash ────────────────────────────────────────────────
+; '/' — check for '//' or '/*' comment, else PUNCT
+lex_slash:
+    LOAD_LOCAL 0
+    PUSH_I8 1
+    ADD
+    LOAD8                   ; peek next char
+    DUP
+    PUSH_I8 47              ; '/'
+    EQ
+    jnz(lsl_line_comment)
+    PUSH_I8 42              ; '*'
+    EQ
+    jnz(lsl_block_comment)
+    jmp(lex_punct)
+
+lsl_line_comment:
+    POP
+    ; advance until '\n' or EOF
+lsl_lc_loop:
+    LOAD_LOCAL 0
+    LOAD_LOCAL 1
+    LTU
+    PUSH_I8 0
+    EQ
+    jnz(tokenize_loop)
+
+    LOAD_LOCAL 0
+    LOAD8
+    PUSH_I8 10
+    EQ
+    jnz(tokenize_loop)
+
+    LOAD_LOCAL 0
+    PUSH_I8 1
+    ADD
+    STORE_LOCAL 0
+    jmp(lsl_lc_loop)
+
+lsl_block_comment:
+    POP
+    ; advance until '*/'
+    LOAD_LOCAL 0
+    PUSH_I8 2
+    ADD
+    STORE_LOCAL 0           ; skip '/*'
+lsl_bc_loop:
+    LOAD_LOCAL 0
+    LOAD_LOCAL 1
+    LTU
+    PUSH_I8 0
+    EQ
+    jnz(tokenize_loop)      ; unterminated — stop
+
+    LOAD_LOCAL 0
+    LOAD8                   ; ch
+    PUSH_I8 42              ; '*'
+    EQ
+    PUSH_I8 0
+    EQ
+    jnz(lsl_bc_not_star)
+
+    ; found '*' — check next
+    LOAD_LOCAL 0
+    PUSH_I8 1
+    ADD
+    LOAD8
+    PUSH_I8 47              ; '/'
+    EQ
+    jnz(lsl_bc_end)
+
+lsl_bc_not_star:
+    LOAD_LOCAL 0
+    PUSH_I8 1
+    ADD
+    STORE_LOCAL 0
+    jmp(lsl_bc_loop)
+
+lsl_bc_end:
+    LOAD_LOCAL 0
+    PUSH_I8 2
+    ADD
+    STORE_LOCAL 0           ; skip '*/'
+    jmp(tokenize_loop)
+
+; ── lex_punct ────────────────────────────────────────────────
+; Handle single and double-char punctuation
+; tag = PUNCT (0x06), len=1 or 2
+lex_punct:
+    LOAD_LOCAL 0
+    PUSH_I8 1
+    ADD
+    STORE_LOCAL 0           ; advance 1 char always
+
+    ; check if next char forms a 2-char token
+    LOAD_LOCAL 0
+    PUSH_I8 1
+    ADD
+    LOAD8                   ; next char (peek)
+    LOAD_LOCAL 5            ; first char
+
+    ; pairs: -> => .. ..= == != <= >= << >> += -= *= /= %= &= |= ^=
+    call(is_two_char_punct)  ; returns 1 if pair is valid, else 0
+    PUSH_I8 0
+    EQ
+    jnz(lp_single)
+
+    LOAD_LOCAL 0
+    PUSH_I8 1
+    ADD
+    STORE_LOCAL 0           ; advance second char
+    PUSH_I8 0x06
+    LOAD_LOCAL 4
+    PUSH_I8 2
+    call(emit_token)
+    jmp(tokenize_loop)
+
+lp_single:
+    POP
+    POP
+    PUSH_I8 0x06
+    LOAD_LOCAL 4
+    PUSH_I8 1
+    call(emit_token)
+    jmp(tokenize_loop)
+
+; ── emit_token ───────────────────────────────────────────────
+; args: tag(u64), start(u64), len(u64)
+; Writes 10 bytes to out_buf: [tag:2][start:4][len:4]
+; (simplified: writes tag as 2 bytes, start/len as 4 bytes LE)
+emit_token:
+    ENTER 3
+    STORE_LOCAL 2           ; len
+    STORE_LOCAL 1           ; start
+    STORE_LOCAL 0           ; tag
+
+    ; write tag (2 bytes) — we just write 1 byte tag + 1 byte 0
+    LOAD_LOCAL 2            ; out_ptr (outer frame)
+    LOAD_LOCAL 0
+    STORE8
+    LOAD_LOCAL 2
+    PUSH_I8 1
+    ADD
+    PUSH_I8 0
+    STORE8                  ; high byte of tag = 0
+
+    ; advance out_ptr by 2
+    LOAD_LOCAL 2
+    PUSH_I8 2
+    ADD
+    STORE_LOCAL 2           ; out_ptr += 2
+
+    ; write start (4 bytes LE)
+    LOAD_LOCAL 2
+    LOAD_LOCAL 1            ; start value
+    STORE64                 ; (writes 8 bytes but we'll trim to 4 in stage2 — ok for now)
+
+    LOAD_LOCAL 2
+    PUSH_I8 4
+    ADD
+    STORE_LOCAL 2
+
+    ; write len (4 bytes)
+    LOAD_LOCAL 2
+    LOAD_LOCAL 2            ; len
+    STORE64
+
+    LOAD_LOCAL 2
+    PUSH_I8 4
+    ADD
+    STORE_LOCAL 2
+
+    LEAVE
+    RET
+
+; ── is_alpha_or_underscore ────────────────────────────────────
+; arg: ch (u64)   returns: 1 if [a-zA-Z_], else 0
+is_alpha_or_underscore:
+    ENTER 1
+    STORE_LOCAL 0           ; ch
+
+    ; ch >= 'a' && ch <= 'z'
+    LOAD_LOCAL 0
+    PUSH_I8 97              ; 'a'
+    LTU
+    PUSH_I8 0
+    EQ
+    PUSH_I8 0
+    EQ
+    jnz(iau_not_lower)
+    LOAD_LOCAL 0
+    PUSH_I8 122             ; 'z'
+    GTU
+    PUSH_I8 0
+    EQ
+    jnz(iau_yes)
+
+iau_not_lower:
+    ; ch >= 'A' && ch <= 'Z'
+    LOAD_LOCAL 0
+    PUSH_I8 65              ; 'A'
+    LTU
+    PUSH_I8 0
+    EQ
+    jnz(iau_not_upper)
+    LOAD_LOCAL 0
+    PUSH_I8 90              ; 'Z'
+    GTU
+    PUSH_I8 0
+    EQ
+    jnz(iau_yes)
+
+iau_not_upper:
+    ; ch == '_'
+    LOAD_LOCAL 0
+    PUSH_I8 95              ; '_'
+    EQ
+    jnz(iau_yes)
+
+    PUSH_I8 0
+    LEAVE
+    RET
+iau_yes:
+    PUSH_I8 1
+    LEAVE
+    RET
+
+; ── is_ident_cont ─────────────────────────────────────────────
+; returns 1 if [a-zA-Z0-9_]
+is_ident_cont:
+    DUP
+    call(is_alpha_or_underscore)
+    jnz(ic_yes)
+    call(is_digit)
+    jnz(ic_yes)
+    PUSH_I8 0
+    RET
+ic_yes:
+    PUSH_I8 1
+    RET
+
+; ── is_digit ──────────────────────────────────────────────────
+; returns 1 if [0-9]
+is_digit:
+    ENTER 1
+    STORE_LOCAL 0
+    LOAD_LOCAL 0
+    PUSH_I8 48              ; '0'
+    LTU
+    PUSH_I8 0
+    EQ
+    jnz(id_no)
+    LOAD_LOCAL 0
+    PUSH_I8 57              ; '9'
+    GTU
+    PUSH_I8 0
+    EQ
+    jnz(id_no)
+    PUSH_I8 1
+    LEAVE
+    RET
+id_no:
+    PUSH_I8 0
+    LEAVE
+    RET
+
+; ── keyword_lookup ────────────────────────────────────────────
+; args: ptr(u64), len(u64)
+; returns: keyword tag (0x07..0x2A) or 0x01 (IDENT)
+; Implementation: linear scan of keyword table
+; (simple and correct; speed doesn't matter at this stage)
+keyword_lookup:
+    ENTER 2
+    STORE_LOCAL 1           ; len
+    STORE_LOCAL 0           ; ptr
+
+    PUSH addr_of(kw_table)
+    ; table format: [len:1][chars:len][tag:1] repeated, ends with 0x00
+
+kl_loop:
+    DUP                     ; table_ptr
+    LOAD8                   ; entry_len
+    DUP
+    PUSH_I8 0
+    EQ
+    jnz(kl_not_found)       ; len=0 → end of table
+
+    DUP
+    LOAD_LOCAL 1
+    EQ
+    PUSH_I8 0
+    EQ
+    jnz(kl_skip)            ; lengths differ → skip
+
+    ; compare bytes
+    OVER                    ; table_ptr (under entry_len)
+    PUSH_I8 1
+    ADD                     ; table_ptr + 1 (start of chars)
+    LOAD_LOCAL 0            ; src_ptr
+    LOAD_LOCAL 1            ; len
+    call(mem_eq)            ; returns 1 if equal
+    jnz(kl_found)
+
+kl_skip:
+    ; advance table_ptr by 1 + entry_len + 1 (len + chars + tag)
+    OVER                    ; entry_len
+    PUSH_I8 2
+    ADD
+    ADD                     ; table_ptr += entry_len + 2
+    POP                     ; pop entry_len
+    jmp(kl_loop)
+
+kl_found:
+    ; entry found — tag is at table_ptr + 1 + entry_len
+    SWAP                    ; entry_len, table_ptr
+    ADD
+    PUSH_I8 1
+    ADD                     ; table_ptr + 1 + entry_len
+    LOAD8                   ; tag
+    LEAVE
+    RET
+
+kl_not_found:
+    POP
+    POP
+    PUSH_I8 0x01            ; IDENT
+    LEAVE
+    RET
+
+; ── mem_eq ────────────────────────────────────────────────────
+; args: a(ptr), b(ptr), len(u64) → 1 if equal, 0 if not
+mem_eq:
+    ENTER 3
+    STORE_LOCAL 2           ; len
+    STORE_LOCAL 1           ; b
+    STORE_LOCAL 0           ; a
+me_loop:
+    LOAD_LOCAL 2
+    PUSH_I8 0
+    EQ
+    jnz(me_equal)
+
+    LOAD_LOCAL 0
+    LOAD8
+    LOAD_LOCAL 1
+    LOAD8
+    EQ
+    PUSH_I8 0
+    EQ
+    jnz(me_not_equal)
+
+    LOAD_LOCAL 0
+    PUSH_I8 1
+    ADD
+    STORE_LOCAL 0
+    LOAD_LOCAL 1
+    PUSH_I8 1
+    ADD
+    STORE_LOCAL 1
+    LOAD_LOCAL 2
+    PUSH_I8 1
+    SUB
+    STORE_LOCAL 2
+    jmp(me_loop)
+me_equal:
+    PUSH_I8 1
+    LEAVE
+    RET
+me_not_equal:
+    PUSH_I8 0
+    LEAVE
+    RET
+
+; ── is_two_char_punct ────────────────────────────────────────
+; args: first_ch, second_ch → 1 if valid 2-char punct
+is_two_char_punct:
+    ENTER 2
+    STORE_LOCAL 1           ; second
+    STORE_LOCAL 0           ; first
+
+    ; check table of valid pairs:
+    ; -> => .. ..= == != <= >= << >> += -= *= /= %= &= |= ^= <<= >>=
+    ; (simplified: check known pairs)
+
+    LOAD_LOCAL 0
+    PUSH_I8 45              ; '-'
+    EQ
+    LOAD_LOCAL 1
+    PUSH_I8 62              ; '>'
+    EQ
+    AND
+    jnz(itcp_yes)           ; "->"
+
+    LOAD_LOCAL 0
+    PUSH_I8 61              ; '='
+    EQ
+    LOAD_LOCAL 1
+    PUSH_I8 62              ; '>'
+    EQ
+    AND
+    jnz(itcp_yes)           ; "=>"
+
+    LOAD_LOCAL 0
+    PUSH_I8 46              ; '.'
+    EQ
+    LOAD_LOCAL 1
+    PUSH_I8 46              ; '.'
+    EQ
+    AND
+    jnz(itcp_yes)           ; ".."
+
+    LOAD_LOCAL 0
+    PUSH_I8 61              ; '='
+    EQ
+    LOAD_LOCAL 1
+    PUSH_I8 61
+    EQ
+    AND
+    jnz(itcp_yes)           ; "=="
+
+    LOAD_LOCAL 0
+    PUSH_I8 33              ; '!'
+    EQ
+    LOAD_LOCAL 1
+    PUSH_I8 61              ; '='
+    EQ
+    AND
+    jnz(itcp_yes)           ; "!="
+
+    LOAD_LOCAL 0
+    PUSH_I8 60              ; '<'
+    EQ
+    LOAD_LOCAL 1
+    PUSH_I8 61              ; '='
+    EQ
+    AND
+    jnz(itcp_yes)           ; "<="
+
+    LOAD_LOCAL 0
+    PUSH_I8 62              ; '>'
+    EQ
+    LOAD_LOCAL 1
+    PUSH_I8 61              ; '='
+    EQ
+    AND
+    jnz(itcp_yes)           ; ">="
+
+    LOAD_LOCAL 0
+    PUSH_I8 60              ; '<'
+    EQ
+    LOAD_LOCAL 1
+    PUSH_I8 60              ; '<'
+    EQ
+    AND
+    jnz(itcp_yes)           ; "<<"
+
+    LOAD_LOCAL 0
+    PUSH_I8 62              ; '>'
+    EQ
+    LOAD_LOCAL 1
+    PUSH_I8 62
+    EQ
+    AND
+    jnz(itcp_yes)           ; ">>"
+
+    PUSH_I8 0
+    LEAVE
+    RET
+itcp_yes:
+    PUSH_I8 1
+    LEAVE
+    RET
+
+; ─────────────────────────────────────────────────────────────
+; .data — keyword table
+; Format: [len:u8] [chars] [tag:u8]  repeated
+; Ends with 0x00
+; ─────────────────────────────────────────────────────────────
+.data
+kw_table:
+    02 'f' 'n'                          07   ; "fn"    KW_FN
+    03 'l' 'e' 't'                      08   ; "let"   KW_LET
+    03 'v' 'a' 'r'                      09   ; "var"   KW_VAR
+    02 'i' 'f'                          0A   ; "if"    KW_IF
+    04 'e' 'l' 's' 'e'                  0B   ; "else"  KW_ELSE
+    05 'm' 'a' 't' 'c' 'h'              0C   ; "match" KW_MATCH
+    04 'l' 'o' 'o' 'p'                  0D   ; "loop"  KW_LOOP
+    05 'w' 'h' 'i' 'l' 'e'              0E   ; "while" KW_WHILE
+    03 'f' 'o' 'r'                      0F   ; "for"   KW_FOR
+    02 'i' 'n'                          10   ; "in"    KW_IN
+    06 'r' 'e' 't' 'u' 'r' 'n'         11   ; "return"
+    04 't' 'y' 'p' 'e'                  12   ; "type"
+    04 'e' 'n' 'u' 'm'                  13   ; "enum"
+    04 'i' 'm' 'p' 'l'                  14   ; "impl"
+    05 't' 'r' 'a' 'i' 't'              15   ; "trait"
+    06 'e' 'x' 't' 'e' 'r' 'n'         16   ; "extern"
+    06 'u' 'n' 's' 'a' 'f' 'e'         17   ; "unsafe"
+    06 'i' 'm' 'p' 'o' 'r' 't'         18   ; "import"
+    06 'e' 'x' 'p' 'o' 'r' 't'         19   ; "export"
+    06 'm' 'o' 'd' 'u' 'l' 'e'         1A   ; "module"
+    06 'e' 'f' 'f' 'e' 'c' 't'         1B   ; "effect"
+    06 'h' 'a' 'n' 'd' 'l' 'e'         1C   ; "handle"
+    06 'r' 'e' 's' 'u' 'm' 'e'         1D   ; "resume"
+    05 's' 'p' 'a' 'w' 'n'             1E   ; "spawn"
+    05 'a' 'w' 'a' 'i' 't'             1F   ; "await"
+    08 'c' 'o' 'm' 'p' 't' 'i' 'm' 'e' 20   ; "comptime"
+    05 'c' 'o' 'n' 's' 't'             21   ; "const"
+    06 's' 't' 'a' 't' 'i' 'c'         22   ; "static"
+    04 't' 'r' 'u' 'e'                  23   ; "true"
+    05 'f' 'a' 'l' 's' 'e'              24   ; "false"
+    02 'a' 's'                          25   ; "as"
+    04 'm' 'o' 'v' 'e'                  26   ; "move"
+    03 'd' 'y' 'n'                      27   ; "dyn"
+    04 's' 'e' 'l' 'f'                  28   ; "self"
+    04 'u' 'n' 'i' 't'                  29   ; "unit"
+    05 'n' 'e' 'v' 'e' 'r'              2A   ; "never"
+    04 'b' 'o' 'o' 'l'                  2B   ; "bool"
+    03 'i' '3' '2'                      2C   ; "i32"
+    03 'i' '6' '4'                      2D   ; "i64"
+    03 'u' '3' '2'                      2E   ; "u32"
+    03 'u' '6' '4'                      2F   ; "u64"
+    03 's' 't' 'r'                      30   ; "str"
+    04 'c' 'h' 'a' 'r'                  31   ; "char"
+    00                                       ; END OF TABLE

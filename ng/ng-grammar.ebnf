@@ -1,0 +1,461 @@
+# ng — Formal Grammar (EBNF)
+# Version 0.1 — 2026
+
+# Notation:
+#   rule  = ...        definition
+#   A B               sequence
+#   A | B             alternation
+#   A?                optional
+#   A*                zero or more
+#   A+                one or more
+#   (A)               grouping
+#   "x"               terminal string
+#   'x'               terminal char
+#   [A-Z]             character range
+#   /* comment */
+
+# ─────────────────────────────────────────────────────────────
+# LEXICAL RULES (terminals)
+# ─────────────────────────────────────────────────────────────
+
+digit        = [0-9]
+hex_digit    = [0-9a-fA-F]
+alpha        = [a-zA-Z]
+alpha_num    = alpha | digit | '_'
+
+IDENT        = (alpha | '_') alpha_num*
+            /* reserved words are keywords, not IDENT */
+
+INT_LIT      = digit+ int_suffix?
+             | "0x" hex_digit+ int_suffix?
+             | "0b" [01]+ int_suffix?
+             | "0o" [0-7]+ int_suffix?
+int_suffix   = "u8" | "u16" | "u32" | "u64" | "u128" | "usize"
+             | "i8" | "i16" | "i32" | "i64" | "i128" | "isize"
+
+FLOAT_LIT    = digit+ '.' digit* float_suffix?
+             | digit+ float_suffix
+float_suffix = "f32" | "f64"
+
+BOOL_LIT     = "true" | "false"
+
+CHAR_LIT     = '\'' char_body '\''
+char_body    = escape_seq | /* any Unicode scalar except '\'' and '\\' */
+
+STRING_LIT   = '"' string_char* '"'
+string_char  = escape_seq | /* any Unicode except '"' and '\\' */
+
+escape_seq   = '\\' ( 'n' | 't' | 'r' | '\\' | '\'' | '"'
+                    | '0' | 'x' hex_digit hex_digit
+                    | 'u' '{' hex_digit+ '}' )
+
+BLOCK_COMMENT = "/*" /* any chars */ "*/"
+LINE_COMMENT  = "//" /* any chars to EOL */
+WHITESPACE    = ( ' ' | '\t' | '\r' | '\n' )+
+
+# Keywords (not valid as IDENT):
+KW = "fn" | "let" | "var" | "if" | "else" | "match" | "loop"
+   | "while" | "for" | "in" | "return" | "break" | "continue"
+   | "type" | "enum" | "impl" | "trait" | "extern" | "unsafe"
+   | "import" | "export" | "module" | "effect" | "handle" | "resume"
+   | "spawn" | "await" | "comptime" | "const" | "static"
+   | "true" | "false" | "and" | "or" | "not" | "as" | "move"
+   | "dyn" | "Self" | "self" | "super"
+   | "unit" | "never" | "bool" | "char" | "str"
+   | "i8" | "i16" | "i32" | "i64" | "i128" | "isize"
+   | "u8" | "u16" | "u32" | "u64" | "u128" | "usize"
+   | "f32" | "f64"
+
+# ─────────────────────────────────────────────────────────────
+# TOP LEVEL
+# ─────────────────────────────────────────────────────────────
+
+file         = module_decl? import_decl* item* EOF
+
+module_decl  = "module" module_path NEWLINE
+import_decl  = "import" module_path import_list? NEWLINE
+             | "import" module_path "as" IDENT NEWLINE
+import_list  = '{' IDENT (',' IDENT)* ','? '}'
+module_path  = IDENT ('.' IDENT)*
+
+item         = attribute* item_inner
+item_inner   = fn_def
+             | type_def
+             | enum_def
+             | impl_block
+             | trait_def
+             | effect_def
+             | extern_block
+             | const_def
+             | static_def
+             | comptime_item
+
+attribute    = '@' IDENT ( '(' attr_args ')' )?
+attr_args    = attr_arg (',' attr_arg)*
+attr_arg     = IDENT | STRING_LIT | IDENT '(' attr_args ')'
+
+# ─────────────────────────────────────────────────────────────
+# ITEMS
+# ─────────────────────────────────────────────────────────────
+
+fn_def       = "comptime"? "fn" IDENT generic_params?
+               '(' fn_params ')' fn_return? effect_clause? block
+
+fn_params    = fn_param (',' fn_param)* ','?
+             | /* empty */
+fn_param     = "self" | pattern ':' type
+fn_return    = "->" type
+effect_clause = '!' '{' effect_list '}'
+effect_list  = effect_ref (',' effect_ref)*
+effect_ref   = module_path ( '[' type_args ']' )?
+
+type_def     = "type" IDENT generic_params? '=' type_body
+type_body    = '{' struct_fields '}'        /* struct */
+             | '(' type_list ')'            /* tuple struct */
+             | type                         /* alias */
+
+struct_fields = struct_field (',' struct_field)* ','?
+struct_field  = IDENT ':' type
+
+enum_def     = "enum" IDENT generic_params? '{' enum_variant* '}'
+enum_variant = IDENT
+             | IDENT '(' type_list ')'
+             | IDENT '{' struct_fields '}'
+
+impl_block   = "impl" generic_params? type_path
+               ( "for" type_path )? '{' impl_item* '}'
+impl_item    = attribute* fn_def
+
+trait_def    = "trait" IDENT generic_params?
+               ( ':' trait_bound_list )? '{' trait_item* '}'
+trait_item   = fn_sig ';'               /* required */
+             | fn_def                   /* default impl */
+fn_sig       = "fn" IDENT generic_params? '(' fn_params ')' fn_return? effect_clause?
+
+effect_def   = "effect" IDENT generic_params? '{' effect_op* '}'
+effect_op    = "fn" IDENT '(' fn_params ')' fn_return? ';'
+
+extern_block = "extern" STRING_LIT '{' extern_item* '}'
+extern_item  = attribute* "fn" IDENT '(' extern_params ')' fn_return? ';'
+             | attribute* "static" IDENT ':' type ';'
+extern_params = extern_param (',' extern_param)* (',' "...")?
+extern_param  = IDENT ':' type
+
+const_def    = "const" IDENT ':' type '=' expr ';'
+static_def   = "static" "mut"? IDENT ':' type '=' expr ';'
+comptime_item = "comptime" ( fn_def | const_def | block )
+
+# ─────────────────────────────────────────────────────────────
+# TYPES
+# ─────────────────────────────────────────────────────────────
+
+type         = primitive_type
+             | type_path
+             | ref_type
+             | ptr_type
+             | slice_type
+             | array_type
+             | tuple_type
+             | fn_type
+             | dyn_type
+             | gen_type
+             | '(' type ')'              /* grouped */
+             | '_'                       /* infer */
+
+primitive_type = "bool" | "char" | "str" | "unit" | "never"
+               | "i8" | "i16" | "i32" | "i64" | "i128" | "isize"
+               | "u8" | "u16" | "u32" | "u64" | "u128" | "usize"
+               | "f32" | "f64"
+
+type_path    = module_path ( '[' type_args ']' )?
+type_args    = type_arg (',' type_arg)*
+type_arg     = type | const_expr
+
+ref_type     = '&' "mut"? type
+ptr_type     = '*' "mut"? type
+slice_type   = '[' ']' type
+array_type   = '[' const_expr ']' type
+tuple_type   = '(' type_list? ')'
+type_list    = type (',' type)* ','?
+fn_type      = "fn" '(' type_list? ')' fn_return?
+dyn_type     = "dyn" trait_bound_list
+gen_type     = "Gen" '[' type ']'
+
+trait_bound_list = trait_bound ('+' trait_bound)*
+trait_bound  = type_path | lifetime_param
+lifetime_param = "'" IDENT
+
+generic_params = '[' generic_param (',' generic_param)* ','? ']'
+generic_param  = IDENT ( ':' trait_bound_list )?
+               | "'" IDENT                            /* lifetime */
+               | "comptime" IDENT ':' type            /* comptime param */
+
+# ─────────────────────────────────────────────────────────────
+# STATEMENTS
+# ─────────────────────────────────────────────────────────────
+
+block        = '{' stmt* expr? '}'      /* final expr is block value */
+stmt         = let_stmt
+             | var_stmt
+             | expr_stmt
+             | return_stmt
+             | break_stmt
+             | continue_stmt
+             | assign_stmt
+             | compd_assign_stmt
+
+let_stmt     = "let" pattern (':' type)? '=' expr
+var_stmt     = "var" IDENT (':' type)? '=' expr
+
+assign_stmt  = expr_path '=' expr
+compd_assign_stmt = expr_path assign_op expr
+assign_op    = "+=" | "-=" | "*=" | "/=" | "%="
+             | "&=" | "|=" | "^=" | "<<=" | ">>="
+
+return_stmt  = "return" expr?
+break_stmt   = "break" expr?
+continue_stmt = "continue"
+
+expr_stmt    = expr          /* expr used as statement; value discarded */
+
+# ─────────────────────────────────────────────────────────────
+# EXPRESSIONS (precedence, lowest to highest)
+# ─────────────────────────────────────────────────────────────
+
+expr         = expr_handle
+             | expr_assign      /* only in specific positions */
+
+expr_handle  = "handle" expr "with" '{' handle_arm+ '}'
+             | expr_range
+
+handle_arm   = module_path '.' IDENT '(' pattern_list? ')' "=>" block
+             | module_path '.' IDENT '(' pattern_list? ')' "=>" expr
+
+expr_range   = expr_or ".." expr_or?
+             | expr_or "..=" expr_or
+             | ".." expr_or
+             | expr_or
+
+expr_or      = expr_and ("or" expr_and)*
+expr_and     = expr_cmp ("and" expr_cmp)*
+expr_cmp     = expr_bitor (cmp_op expr_bitor)?
+cmp_op       = "==" | "!=" | '<' | "<=" | '>' | ">="
+
+expr_bitor   = expr_bitxor ('|' expr_bitxor)*
+expr_bitxor  = expr_bitand ('^' expr_bitand)*
+expr_bitand  = expr_shift ('&' expr_shift)*
+expr_shift   = expr_add (shift_op expr_add)*
+shift_op     = "<<" | ">>"
+
+expr_add     = expr_mul (add_op expr_mul)*
+add_op       = '+' | '-'
+
+expr_mul     = expr_cast (mul_op expr_cast)*
+mul_op       = '*' | '/' | '%'
+
+expr_cast    = expr_unary ("as" type)*
+
+expr_unary   = prefix_op expr_unary
+             | expr_try
+prefix_op    = '-' | "not" | '!' | '&' | "&mut" | '*' | "move"
+
+expr_try     = expr_call '?'*
+
+expr_call    = expr_primary postfix*
+postfix      = '.' IDENT ( '[' type_args ']' )? call_args?   /* method call */
+             | '.' IDENT                                       /* field access */
+             | '.' INT_LIT                                     /* tuple field */
+             | call_args                                       /* function call */
+             | '[' expr ']'                                    /* index */
+             | ".await"
+
+call_args    = '(' arg_list? ')'
+arg_list     = arg (',' arg)* ','?
+arg          = (IDENT ':')? expr
+
+expr_primary = literal
+             | IDENT                   /* variable / function name */
+             | type_path               /* enum variant or type */
+             | struct_expr
+             | tuple_expr
+             | array_expr
+             | block
+             | if_expr
+             | match_expr
+             | loop_expr
+             | while_expr
+             | for_expr
+             | closure_expr
+             | spawn_expr
+             | unsafe_expr
+             | comptime_expr
+             | '(' expr ')'
+
+# ─────────────────────────────────────────────────────────────
+# EXPRESSIONS (compound)
+# ─────────────────────────────────────────────────────────────
+
+literal      = INT_LIT | FLOAT_LIT | BOOL_LIT | CHAR_LIT | STRING_LIT
+             | "()"              /* unit literal */
+
+struct_expr  = type_path '{' struct_init_fields '}'
+struct_init_fields = struct_init_field (',' struct_init_field)* ','?
+struct_init_field  = IDENT ':' expr
+                   | IDENT              /* shorthand: field = local var */
+                   | ".." expr          /* struct update syntax */
+
+tuple_expr   = '(' expr ',' expr_list? ')'     /* 2+ elements */
+             | '(' expr ',' ')'                 /* 1-element tuple */
+             | "()"                             /* unit */
+expr_list    = expr (',' expr)* ','?
+
+array_expr   = '[' expr_list? ']'               /* array literal */
+             | '[' expr ';' const_expr ']'      /* repeat: [0u8; 256] */
+
+if_expr      = "if" expr block ("else" (block | if_expr))?
+
+match_expr   = "match" expr '{' match_arm+ '}'
+match_arm    = pattern ("if" expr)? "=>" (expr | block) ','?
+
+loop_expr    = "loop" block
+while_expr   = "while" expr block
+for_expr     = "for" pattern "in" expr block
+
+closure_expr = "move"? '|' closure_params? '|' ('->' type)? (expr | block)
+closure_params = closure_param (',' closure_param)*
+closure_param  = pattern (':' type)?
+
+spawn_expr   = "spawn" (IDENT call_args | block)
+
+unsafe_expr  = "unsafe" block
+comptime_expr = "comptime" (block | fn_def)
+
+const_expr   = /* expr that is evaluable at compile time */
+               expr
+
+expr_path    = IDENT ('.' IDENT | '[' expr ']')*
+
+# ─────────────────────────────────────────────────────────────
+# PATTERNS
+# ─────────────────────────────────────────────────────────────
+
+pattern      = '_'                              /* wildcard */
+             | "..."                            /* rest (in struct/tuple) */
+             | literal                          /* literal match */
+             | IDENT                            /* binding or unit variant */
+             | IDENT '@' pattern                /* binding with sub-pattern */
+             | type_path                        /* enum unit variant */
+             | type_path '(' pattern_list? ')'  /* enum tuple variant */
+             | type_path '{' struct_patterns '}' /* enum struct variant */
+             | '{' struct_patterns '}'          /* struct pattern */
+             | '(' pattern_list? ')'            /* tuple pattern */
+             | '[' pattern_list? ']'            /* slice pattern */
+             | '&' "mut"? pattern               /* reference pattern */
+             | "mut" IDENT                      /* mutable binding */
+             | pattern '|' pattern              /* OR pattern */
+             | pattern ".." pattern             /* range pattern */
+             | pattern "..=" pattern            /* inclusive range pattern */
+
+pattern_list = pattern (',' pattern)* ','?
+
+struct_patterns = struct_pattern (',' struct_pattern)* ','?
+struct_pattern  = IDENT ':' pattern
+               | IDENT                 /* shorthand */
+               | ".."                  /* ignore rest */
+
+# ─────────────────────────────────────────────────────────────
+# CONCURRENCY
+# ─────────────────────────────────────────────────────────────
+
+# spawn expression (structured — handle tied to scope)
+# spawn_expr covered above
+
+# select expression
+select_expr  = "select" '{' select_arm+ '}'
+select_arm   = expr "=>" ( '|' pattern '|' )? (expr | block) ','?
+             | "timeout" '(' expr ')' "=>" (expr | block)
+
+# ─────────────────────────────────────────────────────────────
+# OPERATOR PRECEDENCE TABLE (summary)
+# ─────────────────────────────────────────────────────────────
+
+# Precedence  Operator(s)                  Associativity
+# ─────────────────────────────────────────────────────
+# 1 (lowest)  handle ... with              —
+# 2           ..  ..=                      non-assoc
+# 3           or                           left
+# 4           and                          left
+# 5           == != < <= > >=              non-assoc
+# 6           |                            left
+# 7           ^                            left
+# 8           &                            left
+# 9           << >>                        left
+# 10          + -                          left
+# 11          * / %                        left
+# 12          as                           left
+# 13          - not ! & &mut * move        right (unary prefix)
+# 14          ?                            postfix
+# 15          . [] ()  .await              left (postfix)
+# 16 (highest) literals, parens, blocks   —
+
+# ─────────────────────────────────────────────────────────────
+# AMBIGUITY RESOLUTIONS
+# ─────────────────────────────────────────────────────────────
+
+# 1. Type vs expression in generics:
+#    Vec[i32].new()  — '[' after type_path starts type_args
+#    v[0]            — '[' after expr_call is index
+#    Resolution: type_path context determines
+
+# 2. Block in if/match vs block as expression:
+#    if cond { a } else { b }  — if_expr, both arms are blocks
+#    let x = { a; b }          — block expression
+#    Resolution: unambiguous because 'if' keyword triggers if_expr
+
+# 3. Closure '|' vs bitwise OR '|':
+#    |x| x + 1    — closure (after let/var/=/(, )
+#    a | b        — bitwise OR
+#    Resolution: parser tracks context (after '=' expect closure or expr)
+
+# 4. '->' in fn type vs match arm:
+#    fn(i32) -> i32   — fn_type
+#    x => y           — match arm uses '=>' not '->'
+#    Resolution: unambiguous ('->' only in fn types, '=>' in match)
+
+# 5. Effect clause '!' vs logical not '!':
+#    fn f() -> T ! {IO}   — effect clause (after return type)
+#    !x                   — logical not (prefix position)
+#    Resolution: '!' as effect clause only after '->' in fn signatures
+
+# ─────────────────────────────────────────────────────────────
+# EXAMPLES (grammar validation)
+# ─────────────────────────────────────────────────────────────
+
+# fn fib(n: u64) -> u64 {
+#     match n {
+#         0 => 0,
+#         1 => 1,
+#         n => fib(n - 1) + fib(n - 2),
+#     }
+# }
+#
+# Parses as:
+#   item → fn_def
+#     IDENT="fib"
+#     fn_params → fn_param: pattern(IDENT "n") : type(u64)
+#     fn_return → type(u64)
+#     block:
+#       expr → match_expr
+#         expr → IDENT "n"
+#         match_arm: pattern(0) → expr(0)
+#         match_arm: pattern(1) → expr(1)
+#         match_arm: pattern(IDENT "n") → expr_add(
+#           expr_call(fib, [expr_add(n, -1)]),
+#           expr_call(fib, [expr_add(n, -2)])
+#         )
+
+# type Result[T, E] = enum { Ok(T), Err(E) }
+#   (syntax sugar — desugars to enum_def)
+
+# fn load() -> Config ! {IO, Fail[ParseError]} { ... }
+#   fn_def with effect_clause: effect_list=[IO, Fail[ParseError]]
