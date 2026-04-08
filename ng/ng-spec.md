@@ -1,6 +1,7 @@
-# ng — Language Specification v0.1
+# ng — Language Specification v0.2
 
 > "From zero bytes to any machine. Written in itself from day one."
+> "The compiler proves it. The type system prevents it. The runtime never sees it."
 
 ---
 
@@ -11,6 +12,8 @@ ng is a systems language designed to replace C, C++, and Rust for all layers:
 - Drivers and embedded
 - Userspace applications
 - High-performance services
+- Distributed systems
+- Cryptographic infrastructure
 
 **Core principles:**
 1. Zero hidden cost — every allocation, copy, and effect is visible in the type
@@ -18,6 +21,11 @@ ng is a systems language designed to replace C, C++, and Rust for all layers:
 3. Zero runtime mandatory — the standard library is optional
 4. Self-hosting — the compiler is written in ng, bootstrapped from a ~300-byte hex seed
 5. One language, all layers — same syntax from interrupt handler to web server
+6. Provably correct — the compiler is a theorem prover, not just a type checker
+7. Security by construction — secrets cannot leak, capabilities cannot be forged
+8. Time-aware — expiry, causality, and ordering are first-class type properties
+9. Distributed-native — values on remote machines are typed the same as local values
+10. Reversible by default — pure functions have automatic inverses
 
 ---
 
@@ -312,6 +320,63 @@ fn fetch(url: str) -> str ! {Async, IO, Fail[NetError]} {
 fn main() {
     let rt = Runtime.new()
     rt.block_on(fetch("https://example.com"))
+}
+```
+
+### 4.5 Scheduler as Effect
+
+Concurrency is not a built-in primitive — it is an algebraic effect.
+This means you can swap schedulers without changing any call site.
+
+```ng
+// the Spawn effect: ability to create concurrent tasks
+effect Spawn {
+    fn spawn[T](task: fn() -> T) -> TaskHandle[T]
+    fn yield_now()
+}
+
+// a function that uses concurrency — scheduler-agnostic
+fn parallel_map[T, U](items: Vec[T], f: fn(T) -> U) -> Vec[U]
+    ! {Spawn}
+{
+    let handles = items.map(|x| Spawn.spawn(|| f(x)))
+    handles.map(|h| h.join()).collect()
+}
+
+// green thread scheduler handler
+handle Spawn with GreenThreads {
+    spawn(task) => GreenThreads.submit(task),
+    yield_now() => GreenThreads.switch(),
+}
+
+// single-threaded event loop handler
+handle Spawn with EventLoop {
+    spawn(task) => EventLoop.queue(task),
+    yield_now() => EventLoop.poll(),
+}
+
+// thread-pool handler
+handle Spawn with ThreadPool(N) {
+    spawn(task) => GLOBAL_POOL.submit(task),
+    yield_now() => {},
+}
+
+// the scheduler is injected at the call site — no global state
+fn main() {
+    handle Spawn with GreenThreads {
+        parallel_map(my_data, process)
+    }
+}
+```
+
+io_uring is exposed as an effect handler in `ng.io`:
+
+```ng
+// Linux io_uring: the IO effect handler uses io_uring under the hood
+fn main() {
+    handle IO with IOUring {           // submits all IO through io_uring
+        read_all_files(paths)          // this code is unchanged — it just uses IO effect
+    }
 }
 ```
 
@@ -651,6 +716,18 @@ No exceptions. No unwinding. Errors are values.
 @deprecated      // warn on use
 @test            // marks a test function
 @comptime_only   // function only callable at compile time
+@stable_abi      // compiler guarantees layout never changes across versions
+@reversible      // marks a pure function as having a compiler-generated inverse
+@wire(json)      // first-class serialization format (json | msgpack | binary | protobuf)
+@wire(binary)
+@cap(File)       // requires capability to call this function
+@invariant       // marks a field or struct with runtime+compile-time invariant
+@proof           // attaches an SMT proof obligation to a function
+@tainted(Secret) // marks return value as information-flow tainted
+@causal          // tracks value provenance for audit trail
+@ttl(3600s)      // temporal type: value expires after duration
+@simd            // enables SIMD vectorization on function or type
+@gpu             // marks function for GPU execution
 ```
 
 ---
@@ -695,16 +772,25 @@ ng.core        — primitives, Option, Result, Never
 ng.mem         — allocators, Box, Arena, Pool
 ng.collections — Vec, Map, Set, Queue, Ring
 ng.str         — String, str, utf8
-ng.io          — File, Stdin, Stdout, Stderr
-ng.net         — TCP, UDP, HTTP (via effects)
+ng.io          — File, Stdin, Stdout, Stderr, io_uring (Linux native async)
+ng.net         — TCP, UDP, HTTP, TLS (via effects, async-first)
 ng.sync        — Channel, Mutex, Atomic
 ng.os          — process, env, signal, fs
-ng.math        — arithmetic, trig, float ops
+ng.math        — arithmetic, trig, float ops, SIMD (f32x8, f64x4, i32x16)
 ng.fmt         — formatting, display, debug
 ng.test        — test framework (@test functions)
 ng.comptime    — type introspection, code generation
 ng.ffi         — C interop utilities
 ng.kernel      — bare-metal / OS dev (no alloc, no runtime)
+ng.crypto      — post-quantum (ML-KEM, ML-DSA), AES-GCM, ChaCha20, Blake3
+ng.proof       — SMT solver integration (Z3), contract verification
+ng.dist        — Remote[T], distributed channels, location transparency
+ng.cap         — capability definitions and propagation
+ng.flow        — information flow labels (Secret, Public, Trusted)
+ng.time        — temporal types, TTL tracking, clock effects
+ng.serial      — wire format codecs (@wire implementations)
+ng.causal      — causal type tracking, audit trail generation
+ng.gpu         — GPU kernel dispatch, buffer management
 ```
 
 ---
@@ -739,4 +825,454 @@ ng.kernel      — bare-metal / OS dev (no alloc, no runtime)
 
 ---
 
-*ng — 0 dependencies. 0 GC. 0 undefined behavior. Written in itself.*
+## 17. Dependent Types (Lite)
+
+Not full theorem proving — just the cases that eliminate real bugs:
+
+```ng
+// array access: index must be provably < length
+fn get[T, comptime N: usize](arr: [N]T, i: usize) -> T
+    where i < N   // checked at compile time when i is known
+                  // checked at runtime with zero overhead when i is unknown
+
+// non-zero integer
+type NonZero[T: Int] = T where self != 0
+
+fn divide(a: i64, b: NonZero[i64]) -> i64 {
+    a / b   // division by zero: impossible by construction
+}
+
+// bounded integers
+type Port = u16 where self >= 1 && self <= 65535
+type Probability = f64 where self >= 0.0 && self <= 1.0
+
+// length-indexed vectors
+fn zip[T, U, comptime N: usize](a: [N]T, b: [N]U) -> [N](T, U)
+    // lengths are equal by type — no runtime check needed
+```
+
+The compiler uses the Z3 SMT solver to discharge proof obligations at compile time.
+Unknown values fall back to runtime bounds checks (never silently skipped).
+
+---
+
+## 18. Capability-Based Security
+
+Capabilities replace ambient authority. A function cannot access a resource
+unless a capability token is passed in — explicitly, at the type level.
+
+```ng
+// capability definitions (in ng.cap)
+cap FileCap      // ability to open files
+cap NetCap       // ability to make network connections
+cap SpawnCap     // ability to spawn processes
+cap ClockCap     // ability to read the current time (affects determinism)
+
+// function requires FileCap
+fn read_config(path: str, @cap file: FileCap) -> Result[str, IOError]
+    ! {IO, Fail[IOError]}
+{
+    IO.read_file(path)
+}
+
+// main receives all capabilities from the OS
+fn main(@caps all: AllCaps) {
+    // pass only what each subsystem needs
+    let config = read_config("app.ng", all.file)?
+
+    // a sandboxed component gets zero capabilities
+    let result = sandbox(untrusted_plugin, NoCaps)
+}
+```
+
+Rules:
+- Capabilities cannot be forged (no `FileCap.new()` outside `main`)
+- Capabilities can be attenuated (restricted), never amplified
+- The type system tracks capability flow — a `@test` function runs with `NoCaps` by default
+
+---
+
+## 19. First-Class Serialization
+
+Types define their wire format. No separate schema files. No runtime reflection.
+
+```ng
+@wire(json, binary, msgpack)
+type Config = {
+    host:    str,
+    port:    Port,          // u16 where 1..=65535
+    timeout: Duration,
+    tls:     bool,
+}
+
+// compiler generates at compile time:
+// Config.to_json()    -> str
+// Config.from_json()  -> Result[Config, ParseError]
+// Config.to_binary()  -> []u8
+// Config.from_binary()-> Result[Config, ParseError]
+// Config.to_msgpack() -> []u8
+
+// field-level control
+type User = {
+    name:     str,
+    email:    str,
+    @wire(skip) password_hash: [32]u8,   // never serialized
+    @wire(rename = "created") created_at: Timestamp,
+}
+
+// versioned formats
+@wire(binary, version: 2)
+@wire_migrate(1 -> 2, fn migrate_v1_to_v2)
+type Packet = { ... }
+```
+
+Zero runtime reflection. All codecs are generated at compile time.
+Invalid input is caught at the type boundary, not deep in application logic.
+
+---
+
+## 20. SIMD and GPU (First-Class)
+
+```ng
+// SIMD types — map directly to hardware registers
+type f32x8  = [8]f32  @simd    // AVX 256-bit
+type f32x16 = [16]f32 @simd    // AVX-512
+type i32x8  = [8]i32  @simd
+
+// SIMD operations (compiler selects best instruction)
+fn dot8(a: f32x8, b: f32x8) -> f32 {
+    (a * b).sum()   // compiles to: vmulps + vdpps or vhaddps chain
+}
+
+// auto-vectorization hint
+@simd
+fn scale(v: []f32, factor: f32) {
+    for x in v { x *= factor }  // compiler vectorizes automatically
+}
+
+// GPU kernels (same language, different execution model)
+@gpu
+fn matrix_mul(a: GpuBuffer[f32], b: GpuBuffer[f32], out: GpuBuffer[f32],
+              n: u32) @thread_id(x, y) {
+    let row = x
+    let col = y
+    var sum = 0.0f32
+    for k in 0..n { sum += a[row*n + k] * b[k*n + col] }
+    out[row*n + col] = sum
+}
+
+// dispatch GPU kernel from CPU
+fn main() {
+    let a = GpuBuffer.upload(matrix_a)
+    let b = GpuBuffer.upload(matrix_b)
+    let out = GpuBuffer.alloc[f32](n * n)
+    matrix_mul.dispatch(grid: (n, n), a, b, out, n)
+    let result = out.download()
+}
+```
+
+---
+
+## 21. Stable ABI
+
+```ng
+// marks struct layout as immutable across all future compiler versions
+@stable_abi
+type Point = {
+    x: f64,
+    y: f64,
+}
+
+// compiler REFUSES to change layout, reorder fields, or add padding
+// error if you try to change a @stable_abi type in a breaking way
+
+@stable_abi
+type ApiResult[T] = {
+    status:  u32,
+    payload: T,
+}
+
+// versioned stable ABI
+@stable_abi(since: "1.0")
+type NetworkPacket = { ... }
+```
+
+Enables: shared libraries, plugin systems, cross-language binaries — all with guaranteed layout.
+
+---
+
+## 22. Hot Reload
+
+Live programming: change code while the program runs. State is preserved.
+
+```ng
+// mark a module as hot-reloadable
+@hot_reload
+module app.ui
+
+// when code changes, compiler:
+// 1. recompiles the module
+// 2. migrates existing state using the migration function
+// 3. replaces function pointers atomically
+
+// state migration (old -> new)
+@migrate(from: "1.0", to: "1.1")
+fn migrate_widget_state(old: WidgetState_v1) -> WidgetState_v2 {
+    WidgetState_v2 {
+        x: old.x,
+        y: old.y,
+        visible: true,   // new field with default
+    }
+}
+```
+
+In kernel/embedded mode: `@hot_reload` is a compile error (no runtime patching).
+
+---
+
+## 23. Information Flow Types
+
+Secrets cannot leak. The type system enforces it — not access control lists, not audits.
+
+```ng
+// flow labels (in ng.flow)
+label Public   // can go anywhere
+label Secret   // can never flow to Public context
+label Trusted  // can flow to Secret or Public, but not from Public
+
+// tainted values
+fn get_password() -> Secret[str] { ... }
+fn get_api_key()  -> Secret[str] { ... }
+
+fn log(msg: Public[str]) ! {IO} { IO.print(msg) }
+
+fn bad() {
+    let pass = get_password()
+    log(pass)           // COMPILE ERROR: Secret cannot flow to Public
+    log(pass.hash())    // OK only if hash() is: Secret[str] -> Public[str]
+                        //   (a declassification function, explicitly approved)
+}
+
+// declassification: explicit, auditable
+@declassify(Secret -> Public)
+fn safe_hash(s: Secret[str]) -> Public[str] {
+    Public(blake3(s.inner()))
+}
+
+// database query results inherit taint from inputs
+fn query(db: &DB, id: Secret[UserId]) -> Secret[UserRecord] { ... }
+```
+
+The compiler tracks taint transitively through all operations.
+No secret ever reaches a log, network socket, or file unless explicitly declassified.
+
+---
+
+## 24. Temporal Types
+
+Values have lifetimes in wall-clock time, not just program scope.
+
+```ng
+// value expires after 1 hour
+fn authenticate(creds: Credentials) -> Token @ttl(3600s) ! {IO, Fail[AuthError]} {
+    // ...
+}
+
+// temporal type in the type system
+type Token = {
+    value: str,
+    issued: Timestamp,
+    ttl:   Duration,
+} where now() < issued + ttl   // invariant: token is not expired
+
+fn use_token(t: Token) -> Response ! {IO} {
+    // compiler inserts: if token is expired, Fail[TokenExpired]
+    // no manual expiry check needed
+}
+
+// short-lived keys
+fn generate_otp() -> OtpCode @ttl(30s) { ... }
+
+let code = generate_otp()
+// ... 31 seconds later ...
+verify(code)   // COMPILE ERROR if code is provably expired
+               // RUNTIME check if expiry is unknown at compile time
+```
+
+---
+
+## 25. Distributed Types
+
+Values on remote machines are typed identically to local values.
+
+```ng
+// Remote[T, "location"] — T living on a specific node
+type Remote[T, comptime loc: str] = ...
+
+// connect to a remote service
+let db: Remote[Database, "db-01.cluster"] = cluster.connect("db-01")
+
+// call remote methods — compiler generates: serialize args, network call,
+//                        deserialize result, handle failures
+let user: User = db.get_user(id)!   // ! = propagate network error
+
+// location-transparent channels
+let (tx, rx) = DistChannel[Message].new()
+spawn_remote("worker-03", || {
+    tx.send(compute())
+})
+let result = rx.recv()!
+
+// affine types for distributed resources (moved, not copied, across nodes)
+fn transfer(account: Remote[BankAccount, "node-a"]) -> Remote[BankAccount, "node-b"] {
+    // compiler ensures account is consumed (not duplicated) during transfer
+}
+```
+
+Network failures are `Fail[NetError]` effects — visible in every function signature that crosses node boundaries.
+
+---
+
+## 26. Proof Synthesis
+
+The compiler calls Z3 to prove function contracts. Not optional annotations — real proofs.
+
+```ng
+// postcondition: compiler proves this holds for all inputs, or rejects
+fn sqrt(x: f64) -> f64
+    requires x >= 0.0
+    ensures  (result * result - x).abs() < 1e-10
+{
+    // ... implementation ...
+}
+
+// loop invariant
+fn binary_search[T: Ord](arr: &[T], target: &T) -> Option[usize]
+    ensures match result {
+        Some(i) => arr[i] == *target,
+        None    => arr.all(|x| x != *target),
+    }
+{
+    // compiler verifies the postcondition is provable from the implementation
+}
+
+// struct invariant (always holds)
+type SortedVec[T: Ord] = {
+    inner: Vec[T],
+    inv always: inner.windows(2).all(|w| w[0] <= w[1])
+}
+
+// when proof fails, compiler shows the counterexample:
+// error: cannot prove `result >= 0` for input x = -1.0
+//        counterexample: x = -1.0 → result = NaN
+```
+
+For cases where Z3 cannot decide automatically, the programmer adds lemmas.
+Proofs are cached — not recomputed on every build.
+
+---
+
+## 27. Reversible Functions
+
+Pure functions have compiler-generated inverses.
+
+```ng
+// mark as reversible — compiler generates the inverse automatically
+@reversible
+fn celsius_to_fahrenheit(c: f64) -> f64 {
+    c * 9.0 / 5.0 + 32.0
+}
+
+// compiler generates:
+fn fahrenheit_to_celsius(f: f64) -> f64 {
+    (f - 32.0) * 5.0 / 9.0
+}
+
+// reversible codec — encode AND decode from one definition
+@reversible
+fn encode_varint(n: u64) -> []u8 { ... }
+// compiler generates: decode_varint(bytes: []u8) -> Result[u64, DecodeError]
+
+// reversible encryption (both directions explicit but derived from one source)
+@reversible
+fn xor_cipher(data: []u8, key: []u8) -> []u8 {
+    data.zip(key.cycle()).map(|(b, k)| b ^ k).collect()
+}
+// xor_cipher.inverse == xor_cipher  (self-inverse — compiler detects this)
+
+// not everything is reversible:
+// @reversible fn hash(data: []u8) -> [32]u8 { blake3(data) }
+// COMPILE ERROR: hash is not bijective — cannot generate inverse
+```
+
+---
+
+## 28. Live Invariants
+
+Invariants expressed in the type system, checked at compile time and monitored at runtime.
+
+```ng
+// field invariant — always holds
+type BankAccount = {
+    owner:   str,
+    balance: i64,
+    inv always: balance >= 0,   // compile time: all writes to balance are checked
+                                // debug mode:   runtime assertion on every mutation
+                                // release mode: zero-cost (proven statically)
+}
+
+// operation that would violate invariant: COMPILE ERROR
+fn overdraft(acc: &mut BankAccount, amount: i64) {
+    acc.balance -= amount   // ERROR if compiler cannot prove balance >= 0 after
+}
+
+// correct version:
+fn withdraw(acc: &mut BankAccount, amount: i64) -> Result[(), InsufficientFunds] {
+    if acc.balance < amount { return Err(InsufficientFunds) }
+    acc.balance -= amount   // OK: compiler proves balance >= 0 (since amount <= balance)
+    Ok(())
+}
+
+// global system invariant
+inv system: total_supply == issued_tokens.sum()  // checked on every state transition
+```
+
+---
+
+## 29. Causal Types
+
+Every value knows its provenance. Automatic audit trails, zero manual logging.
+
+```ng
+// values carry their causal origin
+let price: Caused[f64, from: "db.prices"] = db.get("AAPL")
+let factor: Caused[f64, from: "user.input"] = parse_input()?
+
+// derived values inherit causality
+let adjusted = price * factor
+// adjusted: Caused[f64, from: {"db.prices", "user.input"}]
+
+// audit: the compiler can generate a full data lineage graph
+@causal
+fn compute_tax(income: Caused[f64, from: "payroll"]) -> Caused[f64, from: "payroll"] {
+    income * 0.2
+}
+
+// causal types prevent silent data corruption:
+fn report(value: Caused[f64, from: "db.prices"]) -> str { ... }
+report(adjusted)  // ERROR: adjusted also comes from "user.input" —
+                  //        cannot use user input in a price-only report
+                  //        without explicit acknowledgement
+
+// explicit acknowledgement (audited):
+@acknowledge_source("user.input")
+fn override_price(v: Caused[f64, from: {"db.prices", "user.input"}])
+    -> Caused[f64, from: "db.prices"] { ... }
+```
+
+Causal types are zero-cost at runtime — all tracking is compile-time metadata.
+The compiler generates an audit report as a build artifact.
+
+---
+
+*ng — 0 dependencies. 0 GC. 0 undefined behavior. 0 secret leaks. Written in itself.*
