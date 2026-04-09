@@ -1,0 +1,287 @@
+use bootstrap_lexer
+
+form ParseStep {
+    ok :: bool,
+    next :: i64,
+}
+
+flow ok_step(next :: i64) -> ParseStep {
+    yield ParseStep{
+        ok = true,
+        next = next,
+    }
+}
+
+flow fail_step(next :: i64) -> ParseStep {
+    yield ParseStep{
+        ok = false,
+        next = next,
+    }
+}
+
+flow is_expr_operand_kind(kind :: i64) -> bool {
+    yield kind == bootstrap_lexer.ident_kind() or kind == bootstrap_lexer.integer_kind() or kind == bootstrap_lexer.string_kind()
+}
+
+flow is_expr_operator_kind(kind :: i64) -> bool {
+    yield kind == bootstrap_lexer.plus_kind() or
+          kind == bootstrap_lexer.minus_kind() or
+          kind == bootstrap_lexer.star_kind() or
+          kind == bootstrap_lexer.slash_kind() or
+          kind == bootstrap_lexer.equal_equal_kind() or
+          kind == bootstrap_lexer.bang_equal_kind() or
+          kind == bootstrap_lexer.less_kind() or
+          kind == bootstrap_lexer.less_equal_kind() or
+          kind == bootstrap_lexer.greater_kind() or
+          kind == bootstrap_lexer.greater_equal_kind() or
+          kind == bootstrap_lexer.range_kind()
+}
+
+flow expect_kind(source :: text, start :: i64, expected :: i64) -> ParseStep {
+    bind token :: Token = bootstrap_lexer.next_token(source, start)
+    check token.kind == expected {
+        yield ok_step(token.end)
+    }
+    yield fail_step(token.start)
+}
+
+flow expect_ident_text(source :: text, start :: i64, expected :: text) -> ParseStep {
+    bind token :: Token = bootstrap_lexer.next_token(source, start)
+    check token.kind == bootstrap_lexer.ident_kind() {
+        check bootstrap_lexer.span_eq(source, token.start, token.end, expected) {
+            yield ok_step(token.end)
+        }
+    }
+    yield fail_step(token.start)
+}
+
+flow expect_type_name(source :: text, start :: i64) -> ParseStep {
+    bind token :: Token = bootstrap_lexer.next_token(source, start)
+    check token.kind == bootstrap_lexer.ident_kind() {
+        yield ok_step(token.end)
+    }
+    yield fail_step(token.start)
+}
+
+flow parse_primary_expr(source :: text, start :: i64) -> ParseStep {
+    bind token :: Token = bootstrap_lexer.next_token(source, start)
+    check is_expr_operand_kind(token.kind) {
+        yield ok_step(token.end)
+    }
+    yield fail_step(token.start)
+}
+
+flow parse_expr_tail(source :: text, start :: i64) -> ParseStep {
+    bind token :: Token = bootstrap_lexer.next_token(source, start)
+    check is_expr_operator_kind(token.kind) {
+        bind operand :: ParseStep = parse_primary_expr(source, token.end)
+        check operand.ok {
+            yield parse_expr_tail(source, operand.next)
+        }
+        yield operand
+    }
+    yield ok_step(start)
+}
+
+flow parse_expr(source :: text, start :: i64) -> ParseStep {
+    bind first :: ParseStep = parse_primary_expr(source, start)
+    check first.ok {
+        yield parse_expr_tail(source, first.next)
+    }
+    yield first
+}
+
+flow parse_param(source :: text, start :: i64) -> ParseStep {
+    bind name :: ParseStep = expect_kind(source, start, bootstrap_lexer.ident_kind())
+    check name.ok {
+        bind colon_colon :: ParseStep = expect_kind(source, name.next, bootstrap_lexer.colon_colon_kind())
+        check colon_colon.ok {
+            yield expect_type_name(source, colon_colon.next)
+        }
+        yield colon_colon
+    }
+    yield name
+}
+
+flow skip_balanced_braces(source :: text, start :: i64, depth :: i64) -> ParseStep {
+    bind token :: Token = bootstrap_lexer.next_token(source, start)
+    check token.kind == bootstrap_lexer.eof_kind() {
+        yield fail_step(token.end)
+    }
+    check token.kind == bootstrap_lexer.lbrace_kind() {
+        yield skip_balanced_braces(source, token.end, depth + 1)
+    }
+    check token.kind == bootstrap_lexer.rbrace_kind() {
+        check depth == 1 {
+            yield ok_step(token.end)
+        }
+        yield skip_balanced_braces(source, token.end, depth - 1)
+    }
+    yield skip_balanced_braces(source, token.end, depth)
+}
+
+flow parse_use_path(source :: text, start :: i64) -> ParseStep {
+    bind part :: ParseStep = expect_kind(source, start, bootstrap_lexer.ident_kind())
+    check part.ok {
+        bind separator :: Token = bootstrap_lexer.next_token(source, part.next)
+        check separator.kind == bootstrap_lexer.dot_kind() {
+            yield parse_use_path(source, separator.end)
+        }
+        yield ok_step(part.next)
+    }
+    yield part
+}
+
+flow parse_use(source :: text, start :: i64) -> ParseStep {
+    bind use_kw :: ParseStep = expect_ident_text(source, start, "use")
+    check use_kw.ok {
+        yield parse_use_path(source, use_kw.next)
+    }
+    yield use_kw
+}
+
+flow parse_form(source :: text, start :: i64) -> ParseStep {
+    bind form_kw :: ParseStep = expect_ident_text(source, start, "form")
+    check form_kw.ok {
+        bind name :: ParseStep = expect_kind(source, form_kw.next, bootstrap_lexer.ident_kind())
+        check name.ok {
+            bind open :: ParseStep = expect_kind(source, name.next, bootstrap_lexer.lbrace_kind())
+            check open.ok {
+                yield skip_balanced_braces(source, open.next, 1)
+            }
+            yield open
+        }
+        yield name
+    }
+    yield form_kw
+}
+
+flow parse_params(source :: text, start :: i64) -> ParseStep {
+    bind close :: ParseStep = expect_kind(source, start, bootstrap_lexer.rparen_kind())
+    check close.ok {
+        yield close
+    }
+
+    bind param :: ParseStep = parse_param(source, start)
+    check param.ok {
+        bind separator :: Token = bootstrap_lexer.next_token(source, param.next)
+        check separator.kind == bootstrap_lexer.comma_kind() {
+            yield parse_params(source, separator.end)
+        }
+        check separator.kind == bootstrap_lexer.rparen_kind() {
+            yield ok_step(separator.end)
+        }
+        yield fail_step(separator.start)
+    }
+    yield param
+}
+
+flow parse_inside_flow(source :: text, start :: i64) -> ParseStep {
+    bind token :: Token = bootstrap_lexer.next_token(source, start)
+    check token.kind == bootstrap_lexer.eof_kind() {
+        yield fail_step(token.end)
+    }
+    // allow nested 'unsafe { ... }' blocks before the yield
+    check token.kind == bootstrap_lexer.ident_kind() {
+        check bootstrap_lexer.span_eq(source, token.start, token.end, "unsafe") {
+            bind maybe_open :: ParseStep = expect_kind(source, token.end, bootstrap_lexer.lbrace_kind())
+            check maybe_open.ok {
+                bind skipped :: ParseStep = skip_balanced_braces(source, maybe_open.next, 1)
+                check skipped.ok {
+                    yield parse_inside_flow(source, skipped.next)
+                }
+                yield skipped
+            }
+        }
+    }
+    // look for the yield expression
+    check token.kind == bootstrap_lexer.ident_kind() {
+        check bootstrap_lexer.span_eq(source, token.start, token.end, "yield") {
+            bind expr :: ParseStep = parse_expr(source, token.end)
+            check expr.ok {
+                yield expect_kind(source, expr.next, bootstrap_lexer.rbrace_kind())
+            }
+            yield expr
+        }
+    }
+    // empty body
+    check token.kind == bootstrap_lexer.rbrace_kind() {
+        yield ok_step(token.end)
+    }
+    yield fail_step(token.start)
+}
+
+flow parse_flow_body(source :: text, start :: i64) -> ParseStep {
+    bind open :: ParseStep = expect_kind(source, start, bootstrap_lexer.lbrace_kind())
+    check open.ok {
+        yield parse_inside_flow(source, open.next)
+    }
+    yield open
+}
+
+flow parse_flow(source :: text, start :: i64) -> ParseStep {
+    bind flow_kw :: ParseStep = expect_ident_text(source, start, "flow")
+    check flow_kw.ok {
+        bind name :: ParseStep = expect_kind(source, flow_kw.next, bootstrap_lexer.ident_kind())
+        check name.ok {
+            bind open_paren :: ParseStep = expect_kind(source, name.next, bootstrap_lexer.lparen_kind())
+            check open_paren.ok {
+                bind params :: ParseStep = parse_params(source, open_paren.next)
+                check params.ok {
+                    bind arrow :: ParseStep = expect_kind(source, params.next, bootstrap_lexer.arrow_kind())
+                    check arrow.ok {
+                        bind result :: ParseStep = expect_type_name(source, arrow.next)
+                        check result.ok {
+                            // allow optional '!unsafe' before the body
+                            bind maybe_bang :: Token = bootstrap_lexer.next_token(source, result.next)
+                            check maybe_bang.kind == bootstrap_lexer.bang_kind() {
+                                bind maybe_ident :: ParseStep = expect_ident_text(source, maybe_bang.end, "unsafe")
+                                check maybe_ident.ok {
+                                    yield parse_flow_body(source, maybe_ident.next)
+                                }
+                                yield maybe_ident
+                            }
+                            yield parse_flow_body(source, result.next)
+                        }
+                        yield result
+                    }
+                    yield arrow
+                }
+                yield params
+            }
+            yield open_paren
+        }
+        yield name
+    }
+    yield flow_kw
+}
+
+flow parse_program(source :: text, start :: i64) -> ParseStep {
+    bind token :: Token = bootstrap_lexer.next_token(source, start)
+    check token.kind == bootstrap_lexer.eof_kind() {
+        yield ok_step(token.end)
+    }
+
+    check token.kind == bootstrap_lexer.ident_kind() {
+        check bootstrap_lexer.span_eq(source, token.start, token.end, "use") {
+            bind parsed_use :: ParseStep = parse_use(source, start)
+            check parsed_use.ok {
+                yield parse_program(source, parsed_use.next)
+            }
+            yield parsed_use
+        }
+        check bootstrap_lexer.span_eq(source, token.start, token.end, "form") {
+            bind parsed_form :: ParseStep = parse_form(source, start)
+            check parsed_form.ok {
+                yield parse_program(source, parsed_form.next)
+            }
+            yield parsed_form
+        }
+    }
+
+    bind parsed_flow :: ParseStep = parse_flow(source, start)
+    check parsed_flow.ok {
+        yield parse_program(source, parsed_flow.next)
+    }
+    yield parsed_flow
+}

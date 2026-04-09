@@ -1,0 +1,304 @@
+use text
+
+form Token {
+    kind :: i64,
+    start :: i64,
+    end :: i64,
+}
+
+flow eof_kind() -> i64 {
+    yield 0
+}
+
+flow ident_kind() -> i64 {
+    yield 1
+}
+
+flow integer_kind() -> i64 {
+    yield 2
+}
+
+flow lparen_kind() -> i64 {
+    yield 3
+}
+
+flow rparen_kind() -> i64 {
+    yield 4
+}
+
+flow lbrace_kind() -> i64 {
+    yield 5
+}
+
+flow rbrace_kind() -> i64 {
+    yield 6
+}
+
+flow lbracket_kind() -> i64 {
+    yield 7
+}
+
+flow rbracket_kind() -> i64 {
+    yield 8
+}
+
+flow comma_kind() -> i64 {
+    yield 9
+}
+
+flow dot_kind() -> i64 {
+    yield 10
+}
+
+flow colon_kind() -> i64 {
+    yield 11
+}
+
+flow colon_colon_kind() -> i64 {
+    yield 12
+}
+
+flow plus_kind() -> i64 {
+    yield 13
+}
+
+flow minus_kind() -> i64 {
+    yield 14
+}
+
+flow star_kind() -> i64 {
+    yield 15
+}
+
+flow slash_kind() -> i64 {
+    yield 16
+}
+
+flow equal_kind() -> i64 {
+    yield 17
+}
+
+flow equal_equal_kind() -> i64 {
+    yield 18
+}
+
+flow bang_kind() -> i64 {
+    yield 19
+}
+
+flow bang_equal_kind() -> i64 {
+    yield 20
+}
+
+flow less_kind() -> i64 {
+    yield 21
+}
+
+flow less_equal_kind() -> i64 {
+    yield 22
+}
+
+flow greater_kind() -> i64 {
+    yield 23
+}
+
+flow greater_equal_kind() -> i64 {
+    yield 24
+}
+
+flow arrow_kind() -> i64 {
+    yield 25
+}
+
+flow range_kind() -> i64 {
+    yield 26
+}
+
+flow unknown_kind() -> i64 {
+    yield 27
+}
+
+flow make_token(kind :: i64, start :: i64, end :: i64) -> Token {
+    yield Token{
+        kind = kind,
+        start = start,
+        end = end,
+    }
+}
+
+flow span_len(start :: i64, end :: i64) -> i64 {
+    yield end - start
+}
+
+flow span_eq(source :: text, start :: i64, end :: i64, expected :: text) -> bool {
+    check span_len(start, end) != expected.len {
+        yield false
+    }
+
+    vary index :: i64 = 0
+    spin index < expected.len {
+        check source[start + index] != expected[index] {
+            yield false
+        }
+        index <- index + 1
+    }
+    yield true
+}
+
+flow byte_code(value :: text, index :: i64) -> i64 {
+    check index >= value.len {
+        yield -1
+    }
+    yield value[index] as i64
+}
+
+flow matches_pair(value :: text, index :: i64, first :: i64, second :: i64) -> bool {
+    yield byte_code(value, index) == first and byte_code(value, index + 1) == second
+}
+
+flow skip_spaces(value :: text, start :: i64) -> i64 {
+    vary index :: i64 = start
+    spin index < value.len {
+        check not text.is_ascii_space(value[index]) {
+            yield index
+        }
+        index <- index + 1
+    }
+    yield index
+}
+
+flow scan_ident_end(value :: text, start :: i64) -> i64 {
+    vary index :: i64 = start
+    spin index < value.len {
+        check not text.is_ident_tail(value[index]) {
+            yield index
+        }
+        index <- index + 1
+    }
+    yield index
+}
+
+flow scan_number_end(value :: text, start :: i64) -> i64 {
+    vary index :: i64 = start
+    spin index < value.len {
+        check not text.is_ascii_digit(value[index]) {
+            yield index
+        }
+        index <- index + 1
+    }
+    yield index
+}
+
+flow scan_quoted_end(value :: text, start :: i64) -> i64 {
+    vary index :: i64 = start
+    spin index < value.len {
+        check (value[index] as i64) == 34 {
+            yield index
+        }
+        index <- index + 1
+    }
+    yield index
+}
+
+flow string_kind() -> i64 {
+    yield 28
+}
+
+flow next_token(value :: text, start :: i64) -> Token {
+    bind index :: i64 = skip_spaces(value, start)
+    check index >= value.len {
+        yield make_token(eof_kind(), index, index)
+    }
+
+    bind first :: i64 = byte_code(value, index)
+    check text.is_ident_head(value[index]) {
+        yield make_token(ident_kind(), index, scan_ident_end(value, index + 1))
+    }
+    check text.is_ascii_digit(value[index]) {
+        yield make_token(integer_kind(), index, scan_number_end(value, index + 1))
+    }
+
+    check first == 34 {
+        bind endq :: i64 = scan_quoted_end(value, index + 1)
+        check endq < value.len {
+            yield make_token(string_kind(), index, endq + 1)
+        }
+        yield make_token(string_kind(), index, endq)
+    }
+
+    check matches_pair(value, index, 45, 62) {
+        yield make_token(arrow_kind(), index, index + 2)
+    }
+    check matches_pair(value, index, 58, 58) {
+        yield make_token(colon_colon_kind(), index, index + 2)
+    }
+    check matches_pair(value, index, 46, 46) {
+        yield make_token(range_kind(), index, index + 2)
+    }
+    check matches_pair(value, index, 61, 61) {
+        yield make_token(equal_equal_kind(), index, index + 2)
+    }
+    check matches_pair(value, index, 33, 61) {
+        yield make_token(bang_equal_kind(), index, index + 2)
+    }
+    check matches_pair(value, index, 60, 61) {
+        yield make_token(less_equal_kind(), index, index + 2)
+    }
+    check matches_pair(value, index, 62, 61) {
+        yield make_token(greater_equal_kind(), index, index + 2)
+    }
+
+    check first == 40 {
+        yield make_token(lparen_kind(), index, index + 1)
+    }
+    check first == 41 {
+        yield make_token(rparen_kind(), index, index + 1)
+    }
+    check first == 123 {
+        yield make_token(lbrace_kind(), index, index + 1)
+    }
+    check first == 125 {
+        yield make_token(rbrace_kind(), index, index + 1)
+    }
+    check first == 91 {
+        yield make_token(lbracket_kind(), index, index + 1)
+    }
+    check first == 93 {
+        yield make_token(rbracket_kind(), index, index + 1)
+    }
+    check first == 44 {
+        yield make_token(comma_kind(), index, index + 1)
+    }
+    check first == 46 {
+        yield make_token(dot_kind(), index, index + 1)
+    }
+    check first == 58 {
+        yield make_token(colon_kind(), index, index + 1)
+    }
+    check first == 43 {
+        yield make_token(plus_kind(), index, index + 1)
+    }
+    check first == 45 {
+        yield make_token(minus_kind(), index, index + 1)
+    }
+    check first == 42 {
+        yield make_token(star_kind(), index, index + 1)
+    }
+    check first == 47 {
+        yield make_token(slash_kind(), index, index + 1)
+    }
+    check first == 61 {
+        yield make_token(equal_kind(), index, index + 1)
+    }
+    check first == 33 {
+        yield make_token(bang_kind(), index, index + 1)
+    }
+    check first == 60 {
+        yield make_token(less_kind(), index, index + 1)
+    }
+    check first == 62 {
+        yield make_token(greater_kind(), index, index + 1)
+    }
+
+    yield make_token(unknown_kind(), index, index + 1)
+}

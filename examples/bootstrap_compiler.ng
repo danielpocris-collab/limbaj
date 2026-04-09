@@ -1,0 +1,254 @@
+use bootstrap_lexer
+use bootstrap_parser
+
+form CountStep {
+    ok :: bool,
+    next :: i64,
+    value :: i64,
+}
+
+form CompileSummary {
+    ok :: bool,
+    next :: i64,
+    use_count :: i64,
+    form_count :: i64,
+    flow_count :: i64,
+    total_params :: i64,
+    has_main :: bool,
+}
+
+flow ok_count(next :: i64, value :: i64) -> CountStep {
+    yield CountStep{
+        ok = true,
+        next = next,
+        value = value,
+    }
+}
+
+flow fail_count(next :: i64) -> CountStep {
+    yield CountStep{
+        ok = false,
+        next = next,
+        value = 0,
+    }
+}
+
+flow make_summary(
+    ok :: bool,
+    next :: i64,
+    use_count :: i64,
+    form_count :: i64,
+    flow_count :: i64,
+    total_params :: i64,
+    has_main :: bool) -> CompileSummary {
+    yield CompileSummary{
+        ok = ok,
+        next = next,
+        use_count = use_count,
+        form_count = form_count,
+        flow_count = flow_count,
+        total_params = total_params,
+        has_main = has_main,
+    }
+}
+
+flow summary_score(value :: CompileSummary) -> i64 {
+    bind main_bonus :: i64 = 0
+    check value.has_main {
+        yield value.use_count * 1000 +
+              value.form_count * 100 +
+              value.flow_count * 10 +
+              value.total_params +
+              5000
+    }
+    yield value.use_count * 1000 +
+          value.form_count * 100 +
+          value.flow_count * 10 +
+          value.total_params
+}
+
+flow skip_balanced_braces(source :: text, start :: i64, depth :: i64) -> CountStep {
+    bind token :: Token = bootstrap_lexer.next_token(source, start)
+    check token.kind == bootstrap_lexer.eof_kind() {
+        yield fail_count(token.end)
+    }
+    check token.kind == bootstrap_lexer.lbrace_kind() {
+        yield skip_balanced_braces(source, token.end, depth + 1)
+    }
+    check token.kind == bootstrap_lexer.rbrace_kind() {
+        check depth == 1 {
+            yield ok_count(token.end, 0)
+        }
+        yield skip_balanced_braces(source, token.end, depth - 1)
+    }
+    yield skip_balanced_braces(source, token.end, depth)
+}
+
+flow count_params(source :: text, start :: i64, seen :: i64) -> CountStep {
+    bind close :: Token = bootstrap_lexer.next_token(source, start)
+    check close.kind == bootstrap_lexer.rparen_kind() {
+        yield ok_count(close.end, seen)
+    }
+
+    bind name :: Token = bootstrap_lexer.next_token(source, start)
+    check name.kind == bootstrap_lexer.ident_kind() {
+        bind colon_colon :: Token = bootstrap_lexer.next_token(source, name.end)
+        check colon_colon.kind == bootstrap_lexer.colon_colon_kind() {
+            bind type_name :: Token = bootstrap_lexer.next_token(source, colon_colon.end)
+            check type_name.kind == bootstrap_lexer.ident_kind() {
+                bind separator :: Token = bootstrap_lexer.next_token(source, type_name.end)
+                check separator.kind == bootstrap_lexer.comma_kind() {
+                    yield count_params(source, separator.end, seen + 1)
+                }
+                check separator.kind == bootstrap_lexer.rparen_kind() {
+                    yield ok_count(separator.end, seen + 1)
+                }
+                yield fail_count(separator.start)
+            }
+            yield fail_count(type_name.start)
+        }
+        yield fail_count(colon_colon.start)
+    }
+    yield fail_count(name.start)
+}
+
+flow skip_use_item(source :: text, start :: i64) -> CountStep {
+    bind part :: Token = bootstrap_lexer.next_token(source, start)
+    check part.kind == bootstrap_lexer.ident_kind() {
+        bind separator :: Token = bootstrap_lexer.next_token(source, part.end)
+        check separator.kind == bootstrap_lexer.dot_kind() {
+            yield skip_use_item(source, separator.end)
+        }
+        yield ok_count(part.end, 0)
+    }
+    yield fail_count(part.start)
+}
+
+flow scan_program(
+    source :: text,
+    start :: i64,
+    use_count :: i64,
+    form_count :: i64,
+    flow_count :: i64,
+    total_params :: i64,
+    has_main :: bool) -> CompileSummary {
+    bind token :: Token = bootstrap_lexer.next_token(source, start)
+    check token.kind == bootstrap_lexer.eof_kind() {
+        yield make_summary(true, token.end, use_count, form_count, flow_count, total_params, has_main)
+    }
+
+    check token.kind == bootstrap_lexer.ident_kind() {
+        check bootstrap_lexer.span_eq(source, token.start, token.end, "use") {
+            bind used :: CountStep = skip_use_item(source, token.end)
+            check used.ok {
+                yield scan_program(source, used.next, use_count + 1, form_count, flow_count, total_params, has_main)
+            }
+            yield make_summary(false, used.next, use_count, form_count, flow_count, total_params, has_main)
+        }
+
+        check bootstrap_lexer.span_eq(source, token.start, token.end, "form") {
+            bind name :: Token = bootstrap_lexer.next_token(source, token.end)
+            check name.kind == bootstrap_lexer.ident_kind() {
+                bind open :: Token = bootstrap_lexer.next_token(source, name.end)
+                check open.kind == bootstrap_lexer.lbrace_kind() {
+                    bind body :: CountStep = skip_balanced_braces(source, open.end, 1)
+                    check body.ok {
+                        yield scan_program(
+                            source, body.next, use_count, form_count + 1, flow_count, total_params, has_main)
+                    }
+                    yield make_summary(false, body.next, use_count, form_count, flow_count, total_params, has_main)
+                }
+                yield make_summary(false, open.start, use_count, form_count, flow_count, total_params, has_main)
+            }
+            yield make_summary(false, name.start, use_count, form_count, flow_count, total_params, has_main)
+        }
+
+        check bootstrap_lexer.span_eq(source, token.start, token.end, "flow") {
+            bind name :: Token = bootstrap_lexer.next_token(source, token.end)
+            check name.kind == bootstrap_lexer.ident_kind() {
+                bind open :: Token = bootstrap_lexer.next_token(source, name.end)
+                check open.kind == bootstrap_lexer.lparen_kind() {
+                    bind params :: CountStep = count_params(source, open.end, 0)
+                    check params.ok {
+                        bind arrow :: Token = bootstrap_lexer.next_token(source, params.next)
+                        check arrow.kind == bootstrap_lexer.arrow_kind() {
+                            bind result :: Token = bootstrap_lexer.next_token(source, arrow.end)
+                            check result.kind == bootstrap_lexer.ident_kind() {
+                                bind after_result :: Token = bootstrap_lexer.next_token(source, result.end)
+                                // direct body open
+                                check after_result.kind == bootstrap_lexer.lbrace_kind() {
+                                    bind body :: CountStep = skip_balanced_braces(source, after_result.end, 1)
+                                    check body.ok {
+                                        bind next_has_main :: bool = has_main or bootstrap_lexer.span_eq(source, name.start, name.end, "main")
+                                        yield scan_program(
+                                            source,
+                                            body.next,
+                                            use_count,
+                                            form_count,
+                                            flow_count + 1,
+                                            total_params + params.value,
+                                            next_has_main)
+                                    }
+                                    yield make_summary(false, body.next, use_count, form_count, flow_count, total_params, has_main)
+                                }
+                                // optional '!unsafe' before body
+                                check after_result.kind == bootstrap_lexer.bang_kind() {
+                                    bind maybe_ident :: Token = bootstrap_lexer.next_token(source, after_result.end)
+                                    check maybe_ident.kind == bootstrap_lexer.ident_kind() {
+                                        check bootstrap_lexer.span_eq(source, maybe_ident.start, maybe_ident.end, "unsafe") {
+                                            bind body_open2 :: Token = bootstrap_lexer.next_token(source, maybe_ident.end)
+                                            check body_open2.kind == bootstrap_lexer.lbrace_kind() {
+                                                bind body :: CountStep = skip_balanced_braces(source, body_open2.end, 1)
+                                                check body.ok {
+                                                    bind next_has_main :: bool = has_main or bootstrap_lexer.span_eq(source, name.start, name.end, "main")
+                                                    yield scan_program(
+                                                        source,
+                                                        body.next,
+                                                        use_count,
+                                                        form_count,
+                                                        flow_count + 1,
+                                                        total_params + params.value,
+                                                        next_has_main)
+                                                }
+                                                yield make_summary(false, body.next, use_count, form_count, flow_count, total_params, has_main)
+                                            }
+                                            yield make_summary(false, body_open2.start, use_count, form_count, flow_count, total_params, has_main)
+                                        }
+                                        yield make_summary(false, maybe_ident.start, use_count, form_count, flow_count, total_params, has_main)
+                                    }
+                                    yield make_summary(false, after_result.start, use_count, form_count, flow_count, total_params, has_main)
+                                }
+                                yield make_summary(false, result.start, use_count, form_count, flow_count, total_params, has_main)
+                            }
+                            yield make_summary(false, arrow.start, use_count, form_count, flow_count, total_params, has_main)
+                        }
+                        yield make_summary(false, params.next, use_count, form_count, flow_count, total_params, has_main)
+                    }
+                    yield make_summary(false, open.start, use_count, form_count, flow_count, total_params, has_main)
+                }
+                yield make_summary(false, name.start, use_count, form_count, flow_count, total_params, has_main)
+            }
+        }
+    }
+
+    yield make_summary(false, token.start, use_count, form_count, flow_count, total_params, has_main)
+}
+
+flow compile_source(source :: text) -> CompileSummary {
+    bind parsed :: ParseStep = bootstrap_parser.parse_program(source, 0)
+    check parsed.ok {
+        bind summary :: CompileSummary = scan_program(source, 0, 0, 0, 0, 0, false)
+        check summary.ok {
+            yield make_summary(
+                true,
+                summary.next,
+                summary.use_count,
+                summary.form_count,
+                summary.flow_count,
+                summary.total_params,
+                summary.has_main)
+        }
+        yield make_summary(false, summary.next, 0, 0, 0, 0, false)
+    }
+    yield make_summary(false, parsed.next, 0, 0, 0, 0, false)
+}
