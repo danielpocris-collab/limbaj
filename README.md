@@ -14,6 +14,7 @@ This workspace is selfhost-only.
   - `powershell -ExecutionPolicy Bypass -File .\run_bootstrap_vertical.ps1 -MaxParallel 2`
 
 The old Rust host path was removed from this worktree on `2026-04-16` to eliminate dual-entry confusion.
+The local workspace currently does not contain `ng_selfhost_clean.exe`; restore it from cache or external backup before running the canonical scripts.
 
 ## Current Checkpoint
 
@@ -61,6 +62,18 @@ Direct compile from trusted checkpoint:
 .\ng_selfhost_clean.exe ng_native.ng
 ```
 
+Trust root restore from local cache:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\restore_trust_root.ps1
+```
+
+Trust root backup after any restored/promoted checkpoint:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\backup_trust_root.ps1
+```
+
 ## Current Focus
 
 The current official next step is Block 1 hardening on the large `ng_native.ng -> ng_native.ng` path:
@@ -68,6 +81,7 @@ The current official next step is Block 1 hardening on the large `ng_native.ng -
 - `validate_final_layout_contract(...)`
 - patch / rdata / import validation
 - removal of the last direct CSV lookups and scans from the hot path
+- restore `ng_selfhost_clean.exe` into the workspace before any new canonical verification run
 - freeze the supported core, TCB and bug-free gates in the new canon docs before any strong correctness claim
 - keep bootstrap/direct build dirs ephemeral and reset inside the workspace before each canonical build
 
@@ -75,6 +89,8 @@ The current official next step is Block 1 hardening on the large `ng_native.ng -
 
 - `README.md` is a quick operator guide, not the detailed audit log.
 - `STATUS.md` is the active source of truth for current state and next steps.
+- use `restore_trust_root.ps1` to restore the local trust root from `%LOCALAPPDATA%\Limbaj\trust-root-cache` when available.
+- use `backup_trust_root.ps1` immediately after any restored or promoted checkpoint so cleanup does not strand the workspace again.
 - `BUG_FREE_ACCEPTANCE.md` defines when `bug-free` can be said onest and on what surface.
 - `TCB.md` lists the current trust base and what still has to leave it.
 - `SEMANTICS_CORE.md` fixes the semantic surface that future proofs and validators must preserve.

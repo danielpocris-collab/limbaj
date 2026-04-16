@@ -23,6 +23,9 @@ Acest fisier ramane sursa operationala de adevar pentru worktree-ul curent.
   - [run_direct_stack.ps1](C:/Users/pocri/OneDrive/Desktop/limbaj/.claude/worktrees/thirsty-proskuriakova/run_direct_stack.ps1)
   - [run_bootstrap_vertical.ps1](C:/Users/pocri/OneDrive/Desktop/limbaj/.claude/worktrees/thirsty-proskuriakova/run_bootstrap_vertical.ps1)
 - infrastructura comuna pentru rulare directa ramane in [direct_toolchain_common.ps1](C:/Users/pocri/OneDrive/Desktop/limbaj/.claude/worktrees/thirsty-proskuriakova/direct_toolchain_common.ps1)
+- scripturi de igiena pentru trust root:
+  - [restore_trust_root.ps1](C:/Users/pocri/OneDrive/Desktop/limbaj/.claude/worktrees/thirsty-proskuriakova/restore_trust_root.ps1)
+  - [backup_trust_root.ps1](C:/Users/pocri/OneDrive/Desktop/limbaj/.claude/worktrees/thirsty-proskuriakova/backup_trust_root.ps1)
 - compilatorul activ este [ng_native.ng](C:/Users/pocri/OneDrive/Desktop/limbaj/.claude/worktrees/thirsty-proskuriakova/ng_native.ng)
 - fixed point-ul checkpoint-ului promovat ramas canonic este:
   - `ng_selfhost_clean.exe == output.exe == ngc_gen1_bootstrap.exe == ngc_gen2_bootstrap.exe`
@@ -32,6 +35,7 @@ Acest fisier ramane sursa operationala de adevar pentru worktree-ul curent.
   - `output.exe == direct_stack_compiler\output.exe == direct_fixed_point_selfhost_clean.exe == ngc_gen1_bootstrap.exe == ngc_gen2_bootstrap.exe == bootstrap_gen1\output.exe == bootstrap_gen2\output.exe`
   - size `171520`
   - SHA-256 `417188498A10B9219924E12B7804463A780EC5E73ACBBF1902B4898660A17CBD`
+- local, `ng_selfhost_clean.exe` lipseste acum din workspace dupa cleanup-ul de artefacte; metadatele checkpoint-ului raman canonice, dar rerularea entrypoint-urilor canonice este blocata pana la restaurarea binarului din cache sau dintr-o copie externa
 
 ## Recent Progress
 
@@ -123,6 +127,10 @@ Acest fisier ramane sursa operationala de adevar pentru worktree-ul curent.
   - [BUG_FREE_ACCEPTANCE.md](C:/Users/pocri/OneDrive/Desktop/limbaj/.claude/worktrees/thirsty-proskuriakova/BUG_FREE_ACCEPTANCE.md) defineste acceptance gates pentru orice claim `bug-free`
   - [TCB.md](C:/Users/pocri/OneDrive/Desktop/limbaj/.claude/worktrees/thirsty-proskuriakova/TCB.md) enumera trust base-ul actual si gaurile care trebuie eliminate
   - [SEMANTICS_CORE.md](C:/Users/pocri/OneDrive/Desktop/limbaj/.claude/worktrees/thirsty-proskuriakova/SEMANTICS_CORE.md) fixeaza suprafata semantica minima care trebuie inghetata si pastrata de compiler
+- hardening operational pe trust root-ul local:
+  - worktree-ul a fost curatat de artefacte generate si inchis intr-un commit curat
+  - cleanup-ul a eliminat si copia locala `ng_selfhost_clean.exe`, fara sa atinga metadatele checkpoint-ului canonic din documente
+  - au fost adaugate [restore_trust_root.ps1](C:/Users/pocri/OneDrive/Desktop/limbaj/.claude/worktrees/thirsty-proskuriakova/restore_trust_root.ps1) si [backup_trust_root.ps1](C:/Users/pocri/OneDrive/Desktop/limbaj/.claude/worktrees/thirsty-proskuriakova/backup_trust_root.ps1) pentru a restaura/cacha viitoarele copii locale ale trust root-ului in `%LOCALAPPDATA%\Limbaj\trust-root-cache`
 - checkpoint nou promovat pe `2026-04-16`:
   - `ng_selfhost_clean.exe == output.exe == ngc_gen1_bootstrap.exe == ngc_gen2_bootstrap.exe`
   - size `161280`
@@ -136,6 +144,7 @@ Acest fisier ramane sursa operationala de adevar pentru worktree-ul curent.
   - validari de patch / rdata / import
   - reducerea ultimelor lookup-uri si scanari CSV directe
 - checkpoint-ul promovat ramas canonic este inca cel de `161280`; pana la promovarea candidatului `171520`, `run_direct_stack.ps1` si `run_bootstrap_vertical.ps1` fara `-Compiler ng_native.ng` compara in continuare impotriva trust root-ului vechi
+- trust root-ul canonic lipseste acum local din workspace; pana la restaurarea lui prin `restore_trust_root.ps1` sau dintr-o copie externa, scripturile canonice nu pot fi rerulate in acest worktree
 - compare-ul fixed-point mare pentru `ng_native.ng` nu mai ruleaza prin `#!ng-tool suite`; runner-ul generic ramane bun pentru suite leaf si compare-urile mici, dar cazul mare este orchestrat direct din PowerShell
 - `run_direct_stack.ps1` si `run_bootstrap_vertical.ps1` reutilizeaza directoare / artefacte locale; verdictul canonic trebuie luat din rulare seriala, nu din doua scripturi pornite in paralel peste acelasi workspace
 - builderul PE foloseste inca layout fix pentru sectiunile `.rdata` / `.idata`; orice schimbare care impinge `.rdata` peste 4096 bytes poate reintroduce `ERROR_BAD_EXE_FORMAT` pana cand RVA-urile de sectiune devin dinamice
@@ -170,18 +179,20 @@ Checkpoint asociat:
 
 ## Next Steps
 
-1. Reia Blocul 1 exact din checkpoint-ul verde de mai sus, numai pe `ng_native.ng`.
-2. Pastreaza [BUG_FREE_ACCEPTANCE.md](C:/Users/pocri/OneDrive/Desktop/limbaj/.claude/worktrees/thirsty-proskuriakova/BUG_FREE_ACCEPTANCE.md), [TCB.md](C:/Users/pocri/OneDrive/Desktop/limbaj/.claude/worktrees/thirsty-proskuriakova/TCB.md) si [SEMANTICS_CORE.md](C:/Users/pocri/OneDrive/Desktop/limbaj/.claude/worktrees/thirsty-proskuriakova/SEMANTICS_CORE.md) sincronizate cu orice pas care atinge corectitudinea sau suprafata suportata.
-3. Stabilizeaza contractul mare de layout final:
+1. Restaureaza `ng_selfhost_clean.exe` in workspace din `%LOCALAPPDATA%\Limbaj\trust-root-cache` prin [restore_trust_root.ps1](C:/Users/pocri/OneDrive/Desktop/limbaj/.claude/worktrees/thirsty-proskuriakova/restore_trust_root.ps1) sau dintr-o copie externa valida.
+2. Dupa restaurare, ruleaza [backup_trust_root.ps1](C:/Users/pocri/OneDrive/Desktop/limbaj/.claude/worktrees/thirsty-proskuriakova/backup_trust_root.ps1) ca sa fixezi o copie locala in afara worktree-ului.
+3. Reia Blocul 1 exact din checkpoint-ul verde de mai sus, numai pe `ng_native.ng`.
+4. Pastreaza [BUG_FREE_ACCEPTANCE.md](C:/Users/pocri/OneDrive/Desktop/limbaj/.claude/worktrees/thirsty-proskuriakova/BUG_FREE_ACCEPTANCE.md), [TCB.md](C:/Users/pocri/OneDrive/Desktop/limbaj/.claude/worktrees/thirsty-proskuriakova/TCB.md) si [SEMANTICS_CORE.md](C:/Users/pocri/OneDrive/Desktop/limbaj/.claude/worktrees/thirsty-proskuriakova/SEMANTICS_CORE.md) sincronizate cu orice pas care atinge corectitudinea sau suprafata suportata.
+5. Stabilizeaza contractul mare de layout final:
    - `validate_final_layout_contract(...)`
    - `validate_final_patch_table(...)`
    - `validate_final_rip_patch_table(...)`
-4. Elimina ultimele lookup-uri / scanari CSV directe din traseul mare fara a reintroduce metadata duplicate.
-5. Inchide explicit blocantele din acceptance gates:
+6. Elimina ultimele lookup-uri / scanari CSV directe din traseul mare fara a reintroduce metadata duplicate.
+7. Inchide explicit blocantele din acceptance gates:
    - validare completa per-entry pentru `effective_offsets`
    - builder PE fara cliff fix pe `.rdata` / `.idata`
    - promovarea oficiala a checkpoint-ului `171520` sau a succesorului lui
-6. Dupa fiecare pas relevant, reruleaza numai suitele canonice selfhost:
+8. Dupa fiecare pas relevant, reruleaza numai suitele canonice selfhost:
    - `run_fast_check.ps1`
    - `run_direct_stack.ps1`
    - `run_bootstrap_vertical.ps1 -MaxParallel 2`
