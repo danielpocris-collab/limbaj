@@ -1,0 +1,20 @@
+flow helper(x :: i64) -> i64 {
+    yield x * 2
+}
+
+flow main(s :: str) -> i64 {
+    vary b :: i64 = buf_new()
+    b <- buf_push(b, 65)
+    b <- buf_push(b, 66)
+    b <- buf_push(b, 67)
+    bind len :: i64 = buf_len(b)
+    println(str_from_i64(len))
+    bind v :: i64 = buf_get(b, 0)
+    println(str_from_i64(v))
+    bind r :: i64 = helper(21)
+    println(str_from_i64(r))
+    bind sub :: str = str_slice(s, 0, 4)
+    bind cat :: str = str_concat(sub, " OK")
+    println(cat)
+    yield r
+}

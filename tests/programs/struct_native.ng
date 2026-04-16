@@ -1,0 +1,15 @@
+form Point {
+    x :: i64,
+    y :: i64
+}
+
+flow make_point(a :: i64, b :: i64) -> Point {
+    yield Point{x = a, y = b}
+}
+
+flow main() -> i64 {
+    bind p :: Point = make_point(10, 20)
+    println(str_from_i64(p.x))
+    println(str_from_i64(p.y))
+    yield p.x + p.y
+}

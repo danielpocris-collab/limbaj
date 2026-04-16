@@ -1,0 +1,9 @@
+form Pair {
+    left :: i64,
+    right :: i64
+}
+
+flow main() -> i64 {
+    bind pair :: Pair = Pair{left = 1, right = 2}
+    yield pair.missing
+}

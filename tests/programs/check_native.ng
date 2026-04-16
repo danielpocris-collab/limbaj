@@ -1,0 +1,11 @@
+flow abs(x :: i64) -> i64 {
+    check x < 0 {
+        yield 0 - x
+    } otherwise {
+        yield x
+    }
+}
+
+flow main() -> i64 {
+    yield abs(-15) + abs(10)
+}

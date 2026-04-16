@@ -1,0 +1,741 @@
+// ─── ng self-hosting compiler ─────────────────────────────────────
+// Compiles a subset of ng to C code.
+// Run with: limbaj selfhost ng_compiler.ng <input.ng>
+
+// ═══════════════════════════════════════════════════════════════════
+// SECTION 1: LEXER
+// ═══════════════════════════════════════════════════════════════════
+
+flow tk_eof() -> i64       { yield 0 }
+flow tk_ident() -> i64     { yield 1 }
+flow tk_integer() -> i64   { yield 2 }
+flow tk_string() -> i64    { yield 3 }
+flow tk_lparen() -> i64    { yield 4 }
+flow tk_rparen() -> i64    { yield 5 }
+flow tk_lbrace() -> i64    { yield 6 }
+flow tk_rbrace() -> i64    { yield 7 }
+flow tk_lbracket() -> i64  { yield 8 }
+flow tk_rbracket() -> i64  { yield 9 }
+flow tk_comma() -> i64     { yield 10 }
+flow tk_dot() -> i64       { yield 11 }
+flow tk_colon() -> i64     { yield 12 }
+flow tk_dcolon() -> i64    { yield 13 }
+flow tk_plus() -> i64      { yield 14 }
+flow tk_minus() -> i64     { yield 15 }
+flow tk_star() -> i64      { yield 16 }
+flow tk_slash() -> i64     { yield 17 }
+flow tk_percent() -> i64   { yield 18 }
+flow tk_eq() -> i64        { yield 19 }
+flow tk_eqeq() -> i64      { yield 20 }
+flow tk_neq() -> i64       { yield 21 }
+flow tk_lt() -> i64        { yield 22 }
+flow tk_le() -> i64        { yield 23 }
+flow tk_gt() -> i64        { yield 24 }
+flow tk_ge() -> i64        { yield 25 }
+flow tk_arrow() -> i64     { yield 26 }
+flow tk_larrow() -> i64    { yield 27 }
+flow tk_bang() -> i64      { yield 28 }
+
+form Token {
+    kind :: i64,
+    start :: i64,
+    end :: i64,
+}
+
+flow make_token(k :: i64, s :: i64, e :: i64) -> Token {
+    yield Token{ kind = k, start = s, end = e }
+}
+
+flow is_space(ch :: i64) -> bool { yield ch == 32 or ch == 9 or ch == 10 or ch == 13 }
+flow is_digit(ch :: i64) -> bool { yield ch >= 48 and ch <= 57 }
+flow is_alpha(ch :: i64) -> bool { yield (ch >= 65 and ch <= 90) or (ch >= 97 and ch <= 122) or ch == 95 }
+flow is_alnum(ch :: i64) -> bool { yield is_alpha(ch) or is_digit(ch) }
+
+flow skip_ws(src :: str, pos :: i64) -> i64 {
+    vary i :: i64 = pos
+    bind len :: i64 = str_len(src)
+    spin i < len {
+        bind ch :: i64 = str_byte_at(src, i)
+        check not is_space(ch) {
+            // Check for // comment
+            check ch == 47 and i + 1 < len and str_byte_at(src, i + 1) == 47 {
+                i <- i + 2
+                spin i < len and str_byte_at(src, i) != 10 {
+                    i <- i + 1
+                }
+            } otherwise {
+                yield i
+            }
+        }
+        i <- i + 1
+    }
+    yield i
+}
+
+flow next_token(src :: str, pos :: i64) -> Token {
+    bind i :: i64 = skip_ws(src, pos)
+    bind len :: i64 = str_len(src)
+    check i >= len { yield make_token(tk_eof(), i, i) }
+    bind ch :: i64 = str_byte_at(src, i)
+
+    check is_alpha(ch) {
+        vary j :: i64 = i + 1
+        spin j < len and is_alnum(str_byte_at(src, j)) { j <- j + 1 }
+        yield make_token(tk_ident(), i, j)
+    }
+    check is_digit(ch) {
+        vary j :: i64 = i + 1
+        spin j < len and is_digit(str_byte_at(src, j)) { j <- j + 1 }
+        yield make_token(tk_integer(), i, j)
+    }
+    check ch == 34 {
+        vary j :: i64 = i + 1
+        spin j < len and str_byte_at(src, j) != 34 {
+            check str_byte_at(src, j) == 92 { j <- j + 1 }
+            j <- j + 1
+        }
+        check j < len { j <- j + 1 }
+        yield make_token(tk_string(), i, j)
+    }
+    check i + 1 < len {
+        bind ch2 :: i64 = str_byte_at(src, i + 1)
+        check ch == 58 and ch2 == 58 { yield make_token(tk_dcolon(), i, i + 2) }
+        check ch == 61 and ch2 == 61 { yield make_token(tk_eqeq(), i, i + 2) }
+        check ch == 33 and ch2 == 61 { yield make_token(tk_neq(), i, i + 2) }
+        check ch == 60 and ch2 == 61 { yield make_token(tk_le(), i, i + 2) }
+        check ch == 62 and ch2 == 61 { yield make_token(tk_ge(), i, i + 2) }
+        check ch == 45 and ch2 == 62 { yield make_token(tk_arrow(), i, i + 2) }
+        check ch == 60 and ch2 == 45 { yield make_token(tk_larrow(), i, i + 2) }
+    }
+    check ch == 40 { yield make_token(tk_lparen(), i, i + 1) }
+    check ch == 41 { yield make_token(tk_rparen(), i, i + 1) }
+    check ch == 123 { yield make_token(tk_lbrace(), i, i + 1) }
+    check ch == 125 { yield make_token(tk_rbrace(), i, i + 1) }
+    check ch == 91 { yield make_token(tk_lbracket(), i, i + 1) }
+    check ch == 93 { yield make_token(tk_rbracket(), i, i + 1) }
+    check ch == 44 { yield make_token(tk_comma(), i, i + 1) }
+    check ch == 46 { yield make_token(tk_dot(), i, i + 1) }
+    check ch == 58 { yield make_token(tk_colon(), i, i + 1) }
+    check ch == 43 { yield make_token(tk_plus(), i, i + 1) }
+    check ch == 45 { yield make_token(tk_minus(), i, i + 1) }
+    check ch == 42 { yield make_token(tk_star(), i, i + 1) }
+    check ch == 47 { yield make_token(tk_slash(), i, i + 1) }
+    check ch == 37 { yield make_token(tk_percent(), i, i + 1) }
+    check ch == 61 { yield make_token(tk_eq(), i, i + 1) }
+    check ch == 60 { yield make_token(tk_lt(), i, i + 1) }
+    check ch == 62 { yield make_token(tk_gt(), i, i + 1) }
+    check ch == 33 { yield make_token(tk_bang(), i, i + 1) }
+    yield make_token(tk_eof(), i + 1, i + 1)
+}
+
+flow sp(src :: str, s :: i64, e :: i64) -> str { yield str_slice(src, s, e) }
+flow sp_eq(src :: str, tok :: Token, exp :: str) -> bool { yield str_eq(str_slice(src, tok.start, tok.end), exp) }
+
+// ═══════════════════════════════════════════════════════════════════
+// SECTION 2: HELPERS
+// ═══════════════════════════════════════════════════════════════════
+
+flow emit_indent(n :: i64) -> i64 {
+    vary i :: i64 = 0
+    spin i < n { print("    ") i <- i + 1 }
+    yield 0
+}
+
+flow type_to_c(src :: str, tok :: Token) -> str {
+    check sp_eq(src, tok, "i64") { yield "int64_t" }
+    check sp_eq(src, tok, "i32") { yield "int32_t" }
+    check sp_eq(src, tok, "f64") { yield "double" }
+    check sp_eq(src, tok, "bool") { yield "int" }
+    check sp_eq(src, tok, "str") or sp_eq(src, tok, "text") { yield "const char*" }
+    check sp_eq(src, tok, "void") { yield "void" }
+    yield str_concat("struct ng_", sp(src, tok.start, tok.end))
+}
+
+flow skip_braces(src :: str, pos :: i64, depth :: i64) -> i64 {
+    vary p :: i64 = pos
+    vary d :: i64 = depth
+    spin d > 0 {
+        bind tok :: Token = next_token(src, p)
+        check tok.kind == tk_eof() { yield p }
+        check tok.kind == tk_lbrace() { d <- d + 1 }
+        check tok.kind == tk_rbrace() { d <- d - 1 }
+        p <- tok.end
+    }
+    yield p
+}
+
+flow is_binop(kind :: i64) -> bool {
+    yield kind == tk_plus() or kind == tk_minus() or kind == tk_star() or
+          kind == tk_slash() or kind == tk_percent() or kind == tk_eqeq() or
+          kind == tk_neq() or kind == tk_lt() or kind == tk_le() or
+          kind == tk_gt() or kind == tk_ge()
+}
+
+flow binop_str(kind :: i64) -> str {
+    check kind == tk_plus() { yield " + " }
+    check kind == tk_minus() { yield " - " }
+    check kind == tk_star() { yield " * " }
+    check kind == tk_slash() { yield " / " }
+    check kind == tk_percent() { yield " %% " }
+    check kind == tk_eqeq() { yield " == " }
+    check kind == tk_neq() { yield " != " }
+    check kind == tk_lt() { yield " < " }
+    check kind == tk_le() { yield " <= " }
+    check kind == tk_gt() { yield " > " }
+    check kind == tk_ge() { yield " >= " }
+    yield " ? "
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// SECTION 3: EXPRESSION EMITTER
+// ═══════════════════════════════════════════════════════════════════
+
+// Returns position after the expression
+flow emit_expr(src :: str, pos :: i64) -> i64 {
+    bind tok :: Token = next_token(src, pos)
+
+    // 'not' prefix
+    check tok.kind == tk_ident() and sp_eq(src, tok, "not") {
+        print("!(")
+        bind af :: i64 = emit_expr(src, tok.end)
+        print(")")
+        yield emit_tail(src, af)
+    }
+    // unary minus
+    check tok.kind == tk_minus() {
+        print("-(")
+        bind af :: i64 = emit_expr(src, tok.end)
+        print(")")
+        yield emit_tail(src, af)
+    }
+    // parenthesized
+    check tok.kind == tk_lparen() {
+        print("(")
+        bind af :: i64 = emit_expr(src, tok.end)
+        bind cl :: Token = next_token(src, af)
+        print(")")
+        yield emit_tail(src, cl.end)
+    }
+    // integer
+    check tok.kind == tk_integer() {
+        print(sp(src, tok.start, tok.end))
+        print("LL")
+        yield emit_tail(src, tok.end)
+    }
+    // string
+    check tok.kind == tk_string() {
+        print(sp(src, tok.start, tok.end))
+        yield emit_tail(src, tok.end)
+    }
+    // true/false
+    check tok.kind == tk_ident() and sp_eq(src, tok, "true") {
+        print("1")
+        yield emit_tail(src, tok.end)
+    }
+    check tok.kind == tk_ident() and sp_eq(src, tok, "false") {
+        print("0")
+        yield emit_tail(src, tok.end)
+    }
+    // identifier
+    check tok.kind == tk_ident() {
+        yield emit_ident_expr(src, tok)
+    }
+    yield tok.end
+}
+
+flow emit_ident_expr(src :: str, tok :: Token) -> i64 {
+    bind nx :: Token = next_token(src, tok.end)
+
+    // Struct literal: Name{ field = val, ... }
+    check nx.kind == tk_lbrace() {
+        bind f1 :: Token = next_token(src, nx.end)
+        check f1.kind == tk_ident() {
+            bind f2 :: Token = next_token(src, f1.end)
+            check f2.kind == tk_eq() {
+                yield emit_struct_lit(src, tok, nx.end)
+            }
+        }
+    }
+    // Function call: name(args)
+    check nx.kind == tk_lparen() {
+        yield emit_call(src, tok, nx.end)
+    }
+    // Plain variable
+    print(sp(src, tok.start, tok.end))
+    yield emit_tail(src, tok.end)
+}
+
+flow emit_struct_lit(src :: str, name_tok :: Token, pos :: i64) -> i64 {
+    print("(struct ng_")
+    print(sp(src, name_tok.start, name_tok.end))
+    print("){ ")
+    vary p :: i64 = pos
+    vary first :: bool = true
+    spin true {
+        bind ft :: Token = next_token(src, p)
+        check ft.kind == tk_rbrace() {
+            print(" }")
+            yield emit_tail(src, ft.end)
+        }
+        check not first { print(", ") }
+        print(".")
+        print(sp(src, ft.start, ft.end))
+        bind eq :: Token = next_token(src, ft.end)
+        print(" = ")
+        p <- emit_expr(src, eq.end)
+        first <- false
+        bind mc :: Token = next_token(src, p)
+        check mc.kind == tk_comma() { p <- mc.end }
+    }
+    yield p
+}
+
+flow emit_call(src :: str, name_tok :: Token, pos :: i64) -> i64 {
+    print("ng_")
+    print(sp(src, name_tok.start, name_tok.end))
+    print("(")
+    bind close_check :: Token = next_token(src, pos)
+    check close_check.kind == tk_rparen() {
+        print(")")
+        yield emit_tail(src, close_check.end)
+    }
+    vary p :: i64 = pos
+    vary first :: bool = true
+    spin true {
+        bind ct :: Token = next_token(src, p)
+        check ct.kind == tk_rparen() {
+            print(")")
+            yield emit_tail(src, ct.end)
+        }
+        check not first { print(", ") }
+        p <- emit_expr(src, p)
+        first <- false
+        bind mc :: Token = next_token(src, p)
+        check mc.kind == tk_comma() { p <- mc.end }
+    }
+    yield p
+}
+
+flow emit_tail(src :: str, pos :: i64) -> i64 {
+    bind tok :: Token = next_token(src, pos)
+
+    // .field or .method()
+    check tok.kind == tk_dot() {
+        bind field :: Token = next_token(src, tok.end)
+        bind nx :: Token = next_token(src, field.end)
+        check nx.kind == tk_lparen() {
+            // method call
+            print(".")
+            print(sp(src, field.start, field.end))
+            print("(")
+            vary p :: i64 = nx.end
+            vary first :: bool = true
+            spin true {
+                bind ct :: Token = next_token(src, p)
+                check ct.kind == tk_rparen() {
+                    print(")")
+                    yield emit_tail(src, ct.end)
+                }
+                check not first { print(", ") }
+                p <- emit_expr(src, p)
+                first <- false
+                bind mc :: Token = next_token(src, p)
+                check mc.kind == tk_comma() { p <- mc.end }
+            }
+        }
+        print(".")
+        print(sp(src, field.start, field.end))
+        yield emit_tail(src, field.end)
+    }
+    // [index]
+    check tok.kind == tk_lbracket() {
+        print("[")
+        bind af :: i64 = emit_expr(src, tok.end)
+        bind cl :: Token = next_token(src, af)
+        print("]")
+        yield emit_tail(src, cl.end)
+    }
+    // 'as' cast
+    check tok.kind == tk_ident() and sp_eq(src, tok, "as") {
+        bind ct :: Token = next_token(src, tok.end)
+        yield emit_tail(src, ct.end)
+    }
+    // binary ops
+    check is_binop(tok.kind) {
+        print(binop_str(tok.kind))
+        yield emit_expr(src, tok.end)
+    }
+    // 'and' / 'or'
+    check tok.kind == tk_ident() and sp_eq(src, tok, "and") {
+        print(" && ")
+        yield emit_expr(src, tok.end)
+    }
+    check tok.kind == tk_ident() and sp_eq(src, tok, "or") {
+        print(" || ")
+        yield emit_expr(src, tok.end)
+    }
+    // not a continuation
+    yield pos
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// SECTION 4: STATEMENT EMITTER
+// ═══════════════════════════════════════════════════════════════════
+
+flow emit_stmt(src :: str, pos :: i64, indent :: i64) -> i64 {
+    bind tok :: Token = next_token(src, pos)
+
+    // bind name :: type = expr
+    check tok.kind == tk_ident() and sp_eq(src, tok, "bind") {
+        yield emit_bind(src, tok.end, indent)
+    }
+    // vary name :: type = expr
+    check tok.kind == tk_ident() and sp_eq(src, tok, "vary") {
+        yield emit_bind(src, tok.end, indent)
+    }
+    // yield expr
+    check tok.kind == tk_ident() and sp_eq(src, tok, "yield") {
+        bind dummy :: i64 = emit_indent(indent)
+        print("return ")
+        bind af :: i64 = emit_expr(src, tok.end)
+        println(";")
+        yield af
+    }
+    // check cond { body } otherwise { body }
+    check tok.kind == tk_ident() and sp_eq(src, tok, "check") {
+        yield emit_check(src, tok.end, indent)
+    }
+    // spin cond { body }
+    check tok.kind == tk_ident() and sp_eq(src, tok, "spin") {
+        yield emit_spin(src, tok.end, indent)
+    }
+    // ident <- expr (assignment)
+    check tok.kind == tk_ident() {
+        bind nx :: Token = next_token(src, tok.end)
+        check nx.kind == tk_larrow() {
+            bind dummy :: i64 = emit_indent(indent)
+            print(sp(src, tok.start, tok.end))
+            print(" = ")
+            bind af :: i64 = emit_expr(src, nx.end)
+            println(";")
+            yield af
+        }
+        // expression statement
+        bind dummy :: i64 = emit_indent(indent)
+        bind af :: i64 = emit_expr(src, pos)
+        println(";")
+        yield af
+    }
+    // other expression
+    bind dummy :: i64 = emit_indent(indent)
+    bind af :: i64 = emit_expr(src, pos)
+    println(";")
+    yield af
+}
+
+flow emit_bind(src :: str, pos :: i64, indent :: i64) -> i64 {
+    bind name_tok :: Token = next_token(src, pos)
+    bind dc :: Token = next_token(src, name_tok.end)
+    bind type_tok :: Token = next_token(src, dc.end)
+    bind eq :: Token = next_token(src, type_tok.end)
+    bind dummy :: i64 = emit_indent(indent)
+    print(type_to_c(src, type_tok))
+    print(" ")
+    print(sp(src, name_tok.start, name_tok.end))
+    print(" = ")
+    bind af :: i64 = emit_expr(src, eq.end)
+    println(";")
+    yield af
+}
+
+flow emit_check(src :: str, pos :: i64, indent :: i64) -> i64 {
+    bind dummy :: i64 = emit_indent(indent)
+    print("if (")
+    bind af_cond :: i64 = emit_expr(src, pos)
+    bind open :: Token = next_token(src, af_cond)
+    println(") {")
+    bind af_body :: i64 = emit_body(src, open.end, indent + 1)
+    bind maybe_ow :: Token = next_token(src, af_body)
+    check maybe_ow.kind == tk_ident() and sp_eq(src, maybe_ow, "otherwise") {
+        bind ow_open :: Token = next_token(src, maybe_ow.end)
+        bind dummy2 :: i64 = emit_indent(indent)
+        println("} else {")
+        bind af_else :: i64 = emit_body(src, ow_open.end, indent + 1)
+        bind dummy3 :: i64 = emit_indent(indent)
+        println("}")
+        yield af_else
+    }
+    bind dummy4 :: i64 = emit_indent(indent)
+    println("}")
+    yield af_body
+}
+
+flow emit_spin(src :: str, pos :: i64, indent :: i64) -> i64 {
+    bind cond_tok :: Token = next_token(src, pos)
+    bind dummy :: i64 = emit_indent(indent)
+    check sp_eq(src, cond_tok, "true") {
+        bind open :: Token = next_token(src, cond_tok.end)
+        println("while (1) {")
+        bind af :: i64 = emit_body(src, open.end, indent + 1)
+        bind dummy2 :: i64 = emit_indent(indent)
+        println("}")
+        yield af
+    }
+    print("while (")
+    bind af_cond :: i64 = emit_expr(src, pos)
+    bind open :: Token = next_token(src, af_cond)
+    println(") {")
+    bind af :: i64 = emit_body(src, open.end, indent + 1)
+    bind dummy2 :: i64 = emit_indent(indent)
+    println("}")
+    yield af
+}
+
+// Emit all statements until } is found
+flow emit_body(src :: str, pos :: i64, indent :: i64) -> i64 {
+    vary p :: i64 = pos
+    spin true {
+        bind tok :: Token = next_token(src, p)
+        check tok.kind == tk_rbrace() or tok.kind == tk_eof() {
+            yield tok.end
+        }
+        p <- emit_stmt(src, p, indent)
+    }
+    yield p
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// SECTION 5: TOP-LEVEL COMPILER
+// ═══════════════════════════════════════════════════════════════════
+
+flow emit_prelude() -> i64 {
+    println("#include <stdio.h>")
+    println("#include <stdlib.h>")
+    println("#include <stdint.h>")
+    println("#include <string.h>")
+    println("")
+    println("static void ng_print(const char* s) { printf(\"%s\", s); }")
+    println("static void ng_println(const char* s) { printf(\"%s\\n\", s); }")
+    println("static int64_t ng_str_len(const char* s) { return (int64_t)strlen(s); }")
+    println("static int64_t ng_str_byte_at(const char* s, int64_t i) { if(i>=0&&i<(int64_t)strlen(s)) return (unsigned char)s[i]; return -1; }")
+    println("static const char* ng_str_slice(const char* s, int64_t a, int64_t b) { static char bufs[8][4096]; static int idx=0; char* buf=bufs[idx++&7]; int64_t n=b-a; if(n<0)n=0; if(n>4095)n=4095; memcpy(buf,s+a,n); buf[n]=0; return buf; }")
+    println("static const char* ng_str_concat(const char* a, const char* b) { static char bufs[8][8192]; static int idx=0; char* buf=bufs[idx++&7]; snprintf(buf,8192,\"%s%s\",a,b); return buf; }")
+    println("static const char* ng_str_from_byte(int64_t b) { static char bufs[8][2]; static int idx=0; char* buf=bufs[idx++&7]; buf[0]=(char)b; buf[1]=0; return buf; }")
+    println("static const char* ng_str_from_i64(int64_t n) { static char bufs[8][32]; static int idx=0; char* buf=bufs[idx++&7]; snprintf(buf,32,\"%lld\",(long long)n); return buf; }")
+    println("static int ng_str_eq(const char* a, const char* b) { return strcmp(a,b)==0; }")
+    println("")
+    yield 0
+}
+
+flow emit_form_fwd(src :: str, pos :: i64) -> i64 {
+    bind name :: Token = next_token(src, pos)
+    print("struct ng_")
+    print(sp(src, name.start, name.end))
+    println(";")
+    bind open :: Token = next_token(src, name.end)
+    yield skip_braces(src, open.end, 1)
+}
+
+flow emit_form_def(src :: str, pos :: i64) -> i64 {
+    bind name :: Token = next_token(src, pos)
+    print("struct ng_")
+    print(sp(src, name.start, name.end))
+    println(" {")
+    bind open :: Token = next_token(src, name.end)
+    vary p :: i64 = open.end
+    spin true {
+        bind ft :: Token = next_token(src, p)
+        check ft.kind == tk_rbrace() {
+            println("};")
+            println("")
+            yield ft.end
+        }
+        bind dc :: Token = next_token(src, ft.end)
+        bind ftype :: Token = next_token(src, dc.end)
+        print("    ")
+        print(type_to_c(src, ftype))
+        print(" ")
+        print(sp(src, ft.start, ft.end))
+        println(";")
+        p <- ftype.end
+        bind mc :: Token = next_token(src, p)
+        check mc.kind == tk_comma() { p <- mc.end }
+    }
+    yield p
+}
+
+// Parse params and return position after ")" and the params string
+flow emit_flow_header(src :: str, pos :: i64) -> i64 {
+    bind name :: Token = next_token(src, pos)
+    bind lp :: Token = next_token(src, name.end)
+    vary p :: i64 = lp.end
+    vary params :: str = ""
+    vary first :: bool = true
+    spin true {
+        bind ptok :: Token = next_token(src, p)
+        check ptok.kind == tk_rparen() {
+            bind arr :: Token = next_token(src, ptok.end)
+            bind ret :: Token = next_token(src, arr.end)
+            print(type_to_c(src, ret))
+            print(" ng_")
+            print(sp(src, name.start, name.end))
+            print("(")
+            check str_eq(params, "") { print("void") } otherwise { print(params) }
+            print(")")
+            yield ret.end
+        }
+        bind dc :: Token = next_token(src, ptok.end)
+        bind ptype :: Token = next_token(src, dc.end)
+        check not first { params <- str_concat(params, ", ") }
+        params <- str_concat(params, str_concat(type_to_c(src, ptype), str_concat(" ", sp(src, ptok.start, ptok.end))))
+        first <- false
+        p <- ptype.end
+        bind mc :: Token = next_token(src, p)
+        check mc.kind == tk_comma() { p <- mc.end }
+    }
+    yield p
+}
+
+flow skip_to_body(src :: str, pos :: i64) -> i64 {
+    // Skip optional !unsafe, then find {
+    bind tok :: Token = next_token(src, pos)
+    check tok.kind == tk_bang() {
+        bind u :: Token = next_token(src, tok.end)
+        bind open :: Token = next_token(src, u.end)
+        yield open.end
+    }
+    check tok.kind == tk_lbrace() {
+        yield tok.end
+    }
+    yield pos
+}
+
+flow emit_flow_fwd(src :: str, pos :: i64) -> i64 {
+    bind after_header :: i64 = emit_flow_header(src, pos)
+    println(";")
+    bind body_start :: i64 = skip_to_body(src, after_header)
+    yield skip_braces(src, body_start, 1)
+}
+
+flow emit_flow_def(src :: str, pos :: i64) -> i64 {
+    bind after_header :: i64 = emit_flow_header(src, pos)
+    println(" {")
+    bind body_start :: i64 = skip_to_body(src, after_header)
+    bind after_body :: i64 = emit_body(src, body_start, 1)
+    println("}")
+    println("")
+    yield after_body
+}
+
+flow compile_pass1(src :: str) -> i64 {
+    vary p :: i64 = 0
+    spin true {
+        bind tok :: Token = next_token(src, p)
+        check tok.kind == tk_eof() { yield 0 }
+        check tok.kind == tk_ident() and sp_eq(src, tok, "form") {
+            p <- emit_form_fwd(src, tok.end)
+        } otherwise {
+        check tok.kind == tk_ident() and sp_eq(src, tok, "flow") {
+            p <- emit_flow_fwd(src, tok.end)
+        } otherwise {
+        check tok.kind == tk_ident() and sp_eq(src, tok, "use") {
+            bind u :: Token = next_token(src, tok.end)
+            p <- u.end
+        } otherwise {
+            p <- tok.end
+        }}}
+    }
+    yield 0
+}
+
+flow compile_pass2(src :: str) -> i64 {
+    vary p :: i64 = 0
+    spin true {
+        bind tok :: Token = next_token(src, p)
+        check tok.kind == tk_eof() { yield 0 }
+        check tok.kind == tk_ident() and sp_eq(src, tok, "form") {
+            p <- emit_form_def(src, tok.end)
+        } otherwise {
+        check tok.kind == tk_ident() and sp_eq(src, tok, "flow") {
+            p <- emit_flow_def(src, tok.end)
+        } otherwise {
+        check tok.kind == tk_ident() and sp_eq(src, tok, "use") {
+            bind u :: Token = next_token(src, tok.end)
+            p <- u.end
+        } otherwise {
+            p <- tok.end
+        }}}
+    }
+    yield 0
+}
+
+flow has_main_flow(src :: str) -> bool {
+    vary p :: i64 = 0
+    spin true {
+        bind tok :: Token = next_token(src, p)
+        check tok.kind == tk_eof() { yield false }
+        check tok.kind == tk_ident() and sp_eq(src, tok, "flow") {
+            bind name :: Token = next_token(src, tok.end)
+            check sp_eq(src, name, "main") { yield true }
+        }
+        p <- tok.end
+    }
+    yield false
+}
+
+flow main_has_params(src :: str) -> bool {
+    vary p :: i64 = 0
+    spin true {
+        bind tok :: Token = next_token(src, p)
+        check tok.kind == tk_eof() { yield false }
+        check tok.kind == tk_ident() and sp_eq(src, tok, "flow") {
+            bind name :: Token = next_token(src, tok.end)
+            check sp_eq(src, name, "main") {
+                bind lp :: Token = next_token(src, name.end)
+                bind first :: Token = next_token(src, lp.end)
+                check first.kind != tk_rparen() { yield true }
+                yield false
+            }
+        }
+        p <- tok.end
+    }
+    yield false
+}
+
+flow compile(src :: str) -> i64 {
+    bind dummy1 :: i64 = emit_prelude()
+    bind dummy2 :: i64 = compile_pass1(src)
+    println("")
+    bind dummy3 :: i64 = compile_pass2(src)
+    // emit main wrapper
+    check has_main_flow(src) {
+        check main_has_params(src) {
+            println("int main(int argc, char** argv) {")
+            println("    if (argc < 2) { fprintf(stderr, \"Usage: ngc <file.ng>\\n\"); return 1; }")
+            println("    FILE* f = fopen(argv[1], \"r\");")
+            println("    if (!f) { fprintf(stderr, \"Cannot open file\\n\"); return 1; }")
+            println("    fseek(f, 0, SEEK_END);")
+            println("    long len = ftell(f);")
+            println("    fseek(f, 0, SEEK_SET);")
+            println("    char* src = malloc(len + 1);")
+            println("    fread(src, 1, len, f);")
+            println("    src[len] = 0;")
+            println("    fclose(f);")
+            println("    int64_t result = ng_main(src);")
+            println("    free(src);")
+            println("    return (int)result;")
+            println("}")
+        } otherwise {
+            println("int main(int argc, char** argv) {")
+            println("    int64_t result = ng_main();")
+            println("    printf(\"%lld\\n\", (long long)result);")
+            println("    return 0;")
+            println("}")
+        }
+    }
+    yield 0
+}
+
+flow main(source :: str) -> i64 {
+    yield compile(source)
+}

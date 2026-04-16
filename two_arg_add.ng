@@ -1,0 +1,7 @@
+flow add2(a :: i64, b :: i64) -> i64 {
+    yield a + b
+}
+
+flow main() -> i64 {
+    yield add2(40, 2)
+}

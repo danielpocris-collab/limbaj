@@ -1,0 +1,12 @@
+flow test_tokenizer(src :: str) -> i64 {
+    bind tok1 :: i64 = str_byte_at(src, 0)
+    bind len :: i64 = str_len(src)
+    println(str_concat("len=", str_from_i64(len)))
+    println(str_concat("first byte=", str_from_i64(tok1)))
+    println(str_slice(src, 0, 4))
+    yield 0
+}
+
+flow main(source :: str) -> i64 {
+    yield test_tokenizer(source)
+}

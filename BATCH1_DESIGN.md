@@ -1,5 +1,10 @@
 # BATCH 1 Language Design Specification
 
+Historical note:
+- acest document descrie designul istoric Batch 1
+- detaliile despre implementarea in Rust nu mai descriu worktree-ul operational curent
+- pentru traseul activ foloseste `STATUS.md` si `README.md`
+
 ## Execution Model
 
 ### Stack-Based Interpreter

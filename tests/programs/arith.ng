@@ -1,0 +1,8 @@
+flow add(a :: i64, b :: i64) -> i64 { yield a + b }
+flow mul(a :: i64, b :: i64) -> i64 { yield a * b }
+
+flow main() -> i64 {
+    bind x :: i64 = add(3, 4)
+    bind y :: i64 = mul(x, 6)
+    yield y
+}

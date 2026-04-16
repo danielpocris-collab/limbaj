@@ -1,0 +1,5 @@
+flow main(s :: str) -> i64 {
+    println(s)
+    println(str_from_i64(str_len(s)))
+    yield 0
+}

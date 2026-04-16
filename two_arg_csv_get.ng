@@ -1,0 +1,23 @@
+flow csv_get(csv :: str, n :: i64) -> str {
+    vary idx :: i64 = 0
+    vary start :: i64 = 0
+    vary i :: i64 = 0
+    bind len :: i64 = str_len(csv)
+    spin i <= len {
+        check i == len or str_byte_at(csv, i) == 44 {
+            check idx == n {
+                yield str_slice(csv, start, i)
+            }
+            idx <- idx + 1
+            start <- i + 1
+        }
+        i <- i + 1
+    }
+    yield ""
+}
+
+flow main(s :: str) -> i64 {
+    bind item :: str = csv_get("10,20,30", 2)
+    println(item)
+    yield 0
+}

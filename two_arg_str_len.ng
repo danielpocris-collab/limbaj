@@ -1,0 +1,3 @@
+flow main(s :: str) -> i64 {
+    yield str_len("abcd")
+}

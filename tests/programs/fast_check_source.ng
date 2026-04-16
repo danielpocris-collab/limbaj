@@ -1,0 +1,5 @@
+flow main(source :: str) -> i64 {
+    bind prefix :: str = str_slice(source, 0, 2)
+    println(prefix)
+    yield str_len(source) + str_len(prefix)
+}

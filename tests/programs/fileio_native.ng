@@ -1,0 +1,14 @@
+flow main() -> i64 {
+    vary b :: i64 = buf_new()
+    b <- buf_push(b, 72)
+    b <- buf_push(b, 101)
+    b <- buf_push(b, 108)
+    b <- buf_push(b, 108)
+    b <- buf_push(b, 111)
+    b <- buf_push(b, 10)
+    bind fd :: i64 = file_create("test_out.bin")
+    bind dummy :: i64 = file_write_buf(fd, b)
+    bind dummy2 :: i64 = file_close(fd)
+    println("wrote file")
+    yield buf_len(b)
+}

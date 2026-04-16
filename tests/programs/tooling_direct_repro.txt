@@ -1,0 +1,11 @@
+#!ng-tool suite
+meta|suite|DIRECT REPRO
+meta|prefix|direct_repro_
+meta|explicit_exit|0
+meta|default_exit|0
+meta|compare_output|1
+# case_name|path|expected_output_path
+exit42|tests/programs/exit42.ng|tests/reference/direct_repro_exit42_ref.exe
+main_source|tests/programs/fast_check_source.ng|tests/reference/direct_repro_main_source_ref.exe
+buf_native|tests/programs/buf_native.ng|tests/reference/direct_repro_buf_native_ref.exe
+struct_native|tests/programs/struct_native.ng|tests/reference/direct_repro_struct_native_ref.exe

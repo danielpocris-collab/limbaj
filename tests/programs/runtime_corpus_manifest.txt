@@ -1,0 +1,9 @@
+# case_name|program_path|expected_exit|run_args|expected_file|expected_file_size
+exit42|tests/programs/exit42.ng|42|||
+exit0|tests/programs/exit0.ng|0|||
+compiler_ops|tests/programs/compiler_ops.ng|42|test_input.txt||
+csv_stress|csv_stress.ng|159|test_input.txt||
+buf_native|tests/programs/buf_native.ng|605|||
+struct_native|tests/programs/struct_native.ng|30|||
+strops_native|tests/programs/strops_native.ng|0|||
+fileio_native|tests/programs/fileio_native.ng|6||test_out.bin|6

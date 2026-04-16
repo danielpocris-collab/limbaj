@@ -1,0 +1,9 @@
+flow main() -> i64 {
+    vary sum :: i64 = 0
+    vary i :: i64 = 1
+    spin i <= 10 {
+        sum <- sum + i
+        i <- i + 1
+    }
+    yield sum
+}

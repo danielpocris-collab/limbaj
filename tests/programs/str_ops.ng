@@ -1,0 +1,11 @@
+flow main(s :: str) -> i64 {
+    bind len :: i64 = str_len(s)
+    println(str_from_i64(len))
+    bind first :: i64 = str_byte_at(s, 0)
+    println(str_from_i64(first))
+    bind sub :: str = str_slice(s, 0, 5)
+    println(sub)
+    bind cat :: str = str_concat("hello ", "world")
+    println(cat)
+    yield len
+}

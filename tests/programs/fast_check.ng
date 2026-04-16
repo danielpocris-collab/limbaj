@@ -1,0 +1,29 @@
+form Pair {
+    left :: i64,
+    right :: i64
+}
+
+flow make_pair(a :: i64, b :: i64) -> Pair {
+    yield Pair{left = a, right = b}
+}
+
+flow main() -> i64 {
+    bind pair :: Pair = make_pair(7, 11)
+
+    vary buf :: i64 = buf_new()
+    buf <- buf_push(buf, 65)
+    buf <- buf_push(buf, 66)
+    buf <- buf_set(buf, 1, 67)
+
+    bind joined :: str = str_concat("ng", "!")
+    bind sliced :: str = str_slice("abcd", 1, 3)
+    bind letter :: str = str_from_byte(buf_get(buf, 0))
+    bind digits :: str = str_from_i64(42)
+
+    println(joined)
+    println(sliced)
+    println(letter)
+    println(digits)
+
+    yield pair.left + pair.right + buf_len(buf) + buf_get(buf, 1) + str_len(joined) + str_len(sliced) + str_len(letter) + str_len(digits)
+}

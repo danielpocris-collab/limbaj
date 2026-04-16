@@ -1,0 +1,14 @@
+#!ng-tool suite
+meta|suite|DIRECT CORPUS REPRO
+meta|prefix|direct_corpus_repro_
+meta|explicit_exit|0
+meta|default_exit|0
+meta|compare_output|1
+# case_name|path|expected_output_path
+exit0|tests/programs/exit0.ng|tests/reference/corpus_repro_exit0_ref.exe
+exit42|tests/programs/exit42.ng|tests/reference/direct_repro_exit42_ref.exe
+buf_native|tests/programs/buf_native.ng|tests/reference/direct_repro_buf_native_ref.exe
+struct_native|tests/programs/struct_native.ng|tests/reference/direct_repro_struct_native_ref.exe
+strops_native|tests/programs/strops_native.ng|tests/reference/corpus_repro_strops_native_ref.exe
+fileio_native|tests/programs/fileio_native.ng|tests/reference/corpus_repro_fileio_native_ref.exe
+compiler_ops|tests/programs/compiler_ops.ng|tests/reference/corpus_repro_compiler_ops_ref.exe

@@ -1,0 +1,3 @@
+flow main() -> i64 {
+    yield x
+}

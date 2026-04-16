@@ -1,0 +1,13 @@
+flow main() -> i64 {
+    vary b :: i64 = buf_new()
+    b <- buf_push(b, 72)
+    b <- buf_push(b, 101)
+    b <- buf_push(b, 108)
+    b <- buf_push(b, 108)
+    b <- buf_push(b, 111)
+    bind len :: i64 = buf_len(b)
+    bind ch :: i64 = buf_get(b, 0)
+    b <- buf_set(b, 4, 33)
+    bind ch2 :: i64 = buf_get(b, 4)
+    yield len * 100 + ch + ch2
+}

@@ -1,0 +1,5 @@
+flow main() -> i64 {
+    bind data :: i64 = file_read_all_buf("large_runtime_input.bin")
+    println(str_from_i64(buf_len(data)))
+    yield 0
+}

@@ -1,0 +1,11 @@
+flow main() -> i64 {
+    bind a :: str = str_concat("hello ", "world")
+    println(a)
+    bind n :: str = str_from_i64(42)
+    println(n)
+    bind s :: str = str_slice("abcdef", 2, 5)
+    println(s)
+    bind c :: str = str_from_byte(65)
+    println(c)
+    yield 0
+}

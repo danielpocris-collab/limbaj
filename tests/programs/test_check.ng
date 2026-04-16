@@ -1,0 +1,21 @@
+flow classify(x :: i64) -> str {
+    check x == 1 {
+        yield "one"
+    } otherwise {
+    check x == 2 {
+        yield "two"
+    } otherwise {
+    check x == 3 {
+        yield "three"
+    } otherwise {
+        yield "other"
+    }}}
+}
+
+flow main() -> i64 {
+    println(classify(1))
+    println(classify(2))
+    println(classify(3))
+    println(classify(4))
+    yield 0
+}

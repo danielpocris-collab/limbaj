@@ -1,0 +1,32 @@
+form Point {
+    x :: i64,
+    y :: i64,
+}
+
+flow make_point(x :: i64, y :: i64) -> Point {
+    yield Point{
+        x = x,
+        y = y,
+    }
+}
+
+flow distance_sq(p :: Point) -> i64 {
+    yield p.x * p.x + p.y * p.y
+}
+
+flow sum_up_to(n :: i64) -> i64 {
+    vary total :: i64 = 0
+    vary i :: i64 = 1
+    spin i <= n {
+        total <- total + i
+        i <- i + 1
+    }
+    yield total
+}
+
+flow main() -> i64 {
+    bind p :: Point = make_point(3, 4)
+    bind dsq :: i64 = distance_sq(p)
+    bind sum :: i64 = sum_up_to(10)
+    yield dsq + sum
+}

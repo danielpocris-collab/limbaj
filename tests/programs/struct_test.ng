@@ -1,0 +1,21 @@
+form Info {
+    name :: str,
+    count :: i64,
+    data :: str,
+    extra :: i64
+}
+
+flow make_info(s :: str) -> Info {
+    vary info :: Info = Info{name = s, count = 0, data = "", extra = 42}
+    yield info
+}
+
+flow main(s :: str) -> i64 {
+    println("before make_info")
+    bind info :: Info = make_info(s)
+    println("after make_info")
+    println(info.name)
+    println(str_from_i64(info.count))
+    println(str_from_i64(info.extra))
+    yield info.extra
+}

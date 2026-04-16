@@ -1,0 +1,9 @@
+flow main() -> i64 {
+    println("hello world")
+    print("abc")
+    println("def")
+    bind len :: i64 = str_len("test")
+    bind eq :: i64 = str_eq("abc", "abc")
+    bind neq :: i64 = str_eq("abc", "xyz")
+    yield len + eq * 10 + neq
+}

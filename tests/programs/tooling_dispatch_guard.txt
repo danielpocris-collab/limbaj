@@ -1,0 +1,9 @@
+#!ng-tool suite
+meta|suite|TOOL DISPATCH GUARD
+meta|prefix|tool_dispatch_
+meta|explicit_exit|1
+meta|default_exit|0
+# case_name|expected_exit|path
+legacy_smoke_verify_alias|1|tests/programs/tooling_legacy_smoke_verify_alias.txt
+legacy_fast_check_alias|1|tests/programs/tooling_legacy_fast_check_alias.txt
+legacy_corpus_compile_alias|1|tests/programs/tooling_legacy_corpus_compile_alias.txt

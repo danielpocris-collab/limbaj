@@ -1,0 +1,7 @@
+#!ng-tool suite
+meta|suite|SMOKE VERIFY
+meta|prefix|smoke_
+meta|explicit_exit|0
+meta|default_exit|0
+# case_name|path
+main0|tests/programs/exit0.ng

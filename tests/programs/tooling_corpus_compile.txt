@@ -1,0 +1,13 @@
+#!ng-tool suite
+meta|suite|CORPUS COMPILE
+meta|prefix|corpus_
+meta|explicit_exit|0
+meta|default_exit|0
+# case_name|path
+exit0|tests/programs/exit0.ng
+exit42|tests/programs/exit42.ng
+buf_native|tests/programs/buf_native.ng
+struct_native|tests/programs/struct_native.ng
+strops_native|tests/programs/strops_native.ng
+fileio_native|tests/programs/fileio_native.ng
+compiler_ops|tests/programs/compiler_ops.ng

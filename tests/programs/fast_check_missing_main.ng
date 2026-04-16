@@ -1,0 +1,3 @@
+flow helper() -> i64 {
+    yield 42
+}

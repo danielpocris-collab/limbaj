@@ -1,0 +1,8 @@
+flow fib(n :: i64) -> i64 {
+    check n <= 1 { yield n }
+    yield fib(n - 1) + fib(n - 2)
+}
+
+flow main() -> i64 {
+    yield fib(10)
+}

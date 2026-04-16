@@ -1,1 +1,33 @@
 /target
+/.claude/
+/_tool_logs/
+
+# Generated local scratch sources
+/basic_ng.c
+/tiny.c
+
+# Generated reports and captures
+/bootstrap_vertical_report.md
+*.err
+*.out
+*.log
+*_stderr.txt
+*_stdout.txt
+/test_out.bin
+
+# Generated binaries
+*.exe
+!ng_selfhost_clean.exe
+
+# Generated build and probe directories
+/axiom_*/
+/bootstrap_*/
+/candidate_*/
+/direct_*/
+/gen1_*/
+/gen2_*/
+/manual_*/
+/parallel_*/
+/probe_*/
+/promoted*
+/tmp_*/

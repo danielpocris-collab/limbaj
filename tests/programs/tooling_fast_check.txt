@@ -1,0 +1,13 @@
+#!ng-tool suite
+meta|suite|FAST CHECK
+meta|prefix|fast_check_
+meta|explicit_exit|1
+meta|default_exit|0
+# case_name|expected_exit|path
+main0|0|tests/programs/fast_check.ng
+main_source|0|tests/programs/fast_check_source.ng
+invalid_main|4|tests/programs/fast_check_invalid_main.ng
+missing_main|1|tests/programs/fast_check_missing_main.ng
+missing_call|1|tests/programs/fast_check_missing_call.ng
+missing_var|1|tests/programs/fast_check_missing_var.ng
+missing_field|1|tests/programs/fast_check_missing_field.ng

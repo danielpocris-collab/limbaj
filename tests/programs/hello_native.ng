@@ -1,0 +1,4 @@
+flow main() -> i64 {
+    println("hello")
+    yield 0
+}
