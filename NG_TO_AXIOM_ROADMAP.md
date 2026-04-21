@@ -11,6 +11,27 @@ Regula de baza:
 `ng` este baza actuala.
 `Axiom` este arhitectura-tinta.
 
+## Misiunea proiectului
+
+Scopul proiectului nu este doar sa faca limbajul mai safe in izolare.
+
+Scopul proiectului este sa construiasca un sistem care elimina buguri pe toata suprafata declarata:
+
+- program
+- compiler
+- runtime
+- toolchain
+- frontiere externe
+- concurenta
+- timp
+- distributie
+- securitate
+
+Asta inseamna ca `ng -> Axiom` trebuie gandit ca un stack de corectitudine, nu doar ca o sintaxa sau un type checker mai bun.
+
+Documentul operational care descrie explicit acest stack este:
+- [BUG_ELIMINATION_STACK.md](C:/Users/pocri/OneDrive/Desktop/limbaj/.claude/worktrees/thirsty-proskuriakova/BUG_ELIMINATION_STACK.md)
+
 ## 1. Decizia strategica
 
 Proiectul actual continua pe worktree-ul:
@@ -21,6 +42,7 @@ Directia oficiala este:
 - hardening-ul continua
 - designul nou urmeaza principiile `Axiom`
 - orice schimbare mare trebuie evaluata prin prisma `Axiom`
+- orice schimbare mare trebuie evaluata si prin intrebarea: reduce buguri pe suprafata declarata sau doar muta complexitatea in alta parte?
 
 ## 2. Ce pastram din `ng`
 

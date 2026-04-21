@@ -8,6 +8,26 @@ Scop: acest fisier defineste cand proiectul poate spune onest `bug-free` si pe c
 - Putem spune cel mult: `bug-free pentru core-ul suportat, modulo TCB-ul si assumptions enumerate`.
 - Daca un singur acceptance gate este rosu, verdictul oficial este `not bug-free yet`.
 
+## Misiunea proiectului
+
+Misiunea proiectului este mai larga decat un limbaj doar `memory-safe` sau doar un compilator care trece testele.
+
+Scopul oficial este construirea unui sistem care elimina buguri pe toata suprafata declarata:
+
+- program
+- compiler
+- runtime
+- toolchain
+- frontiere externe
+- concurenta
+- timp
+- distributie
+- securitate
+
+Asta este directia de proiect.
+
+Formulele de `bug-free` din acest fisier raman totusi limitate la suprafata canonica suportata acum si la TCB-ul explicit din [TCB.md](C:/Users/pocri/OneDrive/Desktop/limbaj/.claude/worktrees/thirsty-proskuriakova/TCB.md).
+
 ## Suprafata Vizata
 
 Claim-ul se poate aplica doar pentru:
@@ -157,13 +177,12 @@ Inainte de orice claim `bug-free`, trebuie sa existe in repo:
 
 ## Verdict Curent
 
-Pe `2026-04-17`, worktree-ul curent nu este eligibil pentru claim `bug-free`.
+Pe `2026-04-21`, worktree-ul curent nu este eligibil pentru claim `bug-free`.
 
-Blocantele documentate acum sunt:
+Blocantul documentat acum este:
 
-- Blocul 1 de hardening pe traseul mare este inca deschis
-- validarea completa per-entry pentru `effective_offsets` nu este inca inchisa
 - builderul PE are inca un cliff cunoscut pe layout fix `.rdata` / `.idata`
-- checkpoint-ul promovat oficial ramas canonic este inca cel de `161280`, nu candidatul `171520`
+
+Checkpoint-ul promovat oficial curent este `175104` cu SHA-256 `D0D08BF340B220D904064DF4FFF87D2CD987958E760BFBE217E4CAE376C71653`, dar asta nu inchide claim-ul `bug-free` cat timp blocantul de mai sus ramane deschis.
 
 Pana cand aceste puncte nu dispar din [STATUS.md](C:/Users/pocri/OneDrive/Desktop/limbaj/.claude/worktrees/thirsty-proskuriakova/STATUS.md), verdictul oficial ramane `not bug-free yet`.

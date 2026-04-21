@@ -266,12 +266,6 @@ form LookupStr {
     value :: str
 }
 
-form LookupStrCursor {
-    found :: i64,
-    value :: str,
-    next_pos :: i64
-}
-
 form LayoutScope {
     user_func_count :: i64
 }
@@ -284,10 +278,10 @@ form Compiler {
     src :: str,
     // Function table - parallel arrays
     fn_names :: str,       // comma-separated "name1,name2,..."
-    fn_params :: str,      // comma-separated param counts
-    fn_param_starts :: str, // comma-separated positions right after '('
-    fn_bodies :: str,      // comma-separated body start positions
-    fn_local_counts :: str, // comma-separated local counts for user function bodies
+    fn_params :: i64,      // canonical u32 store of param counts
+    fn_param_starts :: i64, // canonical u32 store of positions right after '('
+    fn_bodies :: i64,      // canonical u32 store of body start positions
+    fn_local_counts :: i64, // canonical u32 store of local counts for user function bodies
     builtin_offsets :: str, // legacy dead field; builtin_offset_store is canonical
     builtin_offset_store :: i64,
     fn_schedule_code_starts :: i64,
@@ -485,21 +479,6 @@ flow csv_get_opt(csv :: str, n :: i64) -> LookupStr {
     yield missing_str()
 }
 
-flow csv_next_str_opt(csv :: str, start_pos :: i64) -> LookupStrCursor {
-    bind len :: i64 = str_len(csv)
-    check start_pos < 0 or start_pos >= len {
-        yield LookupStrCursor{ found = 0, value = "", next_pos = start_pos }
-    }
-    vary end :: i64 = start_pos
-    spin end < len and str_byte_at(csv, end) != 44 {
-        end <- end + 1
-    }
-    check end < len {
-        yield LookupStrCursor{ found = 1, value = str_slice(csv, start_pos, end), next_pos = end + 1 }
-    }
-    yield LookupStrCursor{ found = 1, value = str_slice(csv, start_pos, end), next_pos = end }
-}
-
 flow csv_append(csv :: str, val :: str) -> str {
     check str_eq(csv, "") { yield val }
     yield str_concat(str_concat(csv, ","), val)
@@ -515,18 +494,6 @@ flow csv_count(csv :: str) -> i64 {
         i <- i + 1
     }
     yield count
-}
-
-flow load_csv_i64_opt(csv :: str, idx :: i64) -> LookupI64 {
-    bind value_res :: LookupStr = csv_get_opt(csv, idx)
-    check value_res.found == 0 {
-        yield missing_i64()
-    }
-    bind value_num_res :: LookupI64 = parse_int_result(value_res.value, 0, str_len(value_res.value))
-    check value_num_res.found == 0 {
-        yield missing_i64()
-    }
-    yield value_num_res
 }
 
 flow csv_next_i64_opt(csv :: str, start_pos :: i64) -> LookupI64Cursor {
@@ -553,6 +520,10 @@ flow csv_next_i64_opt(csv :: str, start_pos :: i64) -> LookupI64Cursor {
 }
 
 flow function_name_count(comp :: Compiler) -> i64 {
+    bind count_res :: LookupI64 = u32_store_count_opt(comp.fn_params)
+    check count_res.found == 1 {
+        yield count_res.value
+    }
     yield csv_count(comp.fn_names)
 }
 
@@ -583,6 +554,26 @@ flow u32_store_count_opt(store :: i64) -> LookupI64 {
     yield LookupI64{ found = 1, value = len / 4 }
 }
 
+flow u32_store_pair_count_opt(left :: i64, right :: i64) -> LookupI64 {
+    bind left_count_res :: LookupI64 = u32_store_count_opt(left)
+    bind right_count_res :: LookupI64 = u32_store_count_opt(right)
+    check left_count_res.found == 0 or right_count_res.found == 0 {
+        yield missing_i64()
+    }
+    check left_count_res.value != right_count_res.value {
+        yield missing_i64()
+    }
+    yield left_count_res
+}
+
+flow load_indexed_u32_store_opt(store :: i64, idx :: i64) -> LookupI64 {
+    bind count_res :: LookupI64 = u32_store_count_opt(store)
+    check count_res.found == 0 or idx < 0 or idx >= count_res.value {
+        yield missing_i64()
+    }
+    yield load_u32_store_opt(store, idx)
+}
+
 flow import_slot_count() -> i64 {
     yield 16
 }
@@ -595,68 +586,53 @@ flow load_struct_name_opt(comp :: Compiler, idx :: i64) -> LookupStr {
     yield csv_get_opt(comp.struct_names, idx)
 }
 
-flow load_next_struct_name_opt(comp :: Compiler, start_pos :: i64) -> LookupStrCursor {
-    yield csv_next_str_opt(comp.struct_names, start_pos)
-}
-
 flow load_struct_field_name_opt(fields :: str, idx :: i64) -> LookupStr {
     yield csv_get_opt(fields, idx)
-}
-
-flow load_next_struct_field_name_opt(fields :: str, start_pos :: i64) -> LookupStrCursor {
-    yield csv_next_str_opt(fields, start_pos)
 }
 
 flow load_var_name_opt(comp :: Compiler, idx :: i64) -> LookupStr {
     yield csv_get_opt(comp.var_names, idx)
 }
 
-flow load_next_var_name_opt(comp :: Compiler, start_pos :: i64) -> LookupStrCursor {
-    yield csv_next_str_opt(comp.var_names, start_pos)
-}
-
 flow load_var_type_opt(comp :: Compiler, idx :: i64) -> LookupStr {
     yield csv_get_opt(comp.var_types, idx)
 }
 
-flow load_next_var_type_opt(comp :: Compiler, start_pos :: i64) -> LookupStrCursor {
-    yield csv_next_str_opt(comp.var_types, start_pos)
-}
-
-flow load_next_function_name_opt(comp :: Compiler, start_pos :: i64) -> LookupStrCursor {
-    yield csv_next_str_opt(comp.fn_names, start_pos)
-}
-
 flow load_function_param_count_opt(comp :: Compiler, idx :: i64) -> LookupI64 {
-    yield load_csv_i64_opt(comp.fn_params, idx)
-}
-
-flow load_next_function_param_count_opt(comp :: Compiler, start_pos :: i64) -> LookupI64Cursor {
-    yield csv_next_i64_opt(comp.fn_params, start_pos)
+    yield load_indexed_u32_store_opt(comp.fn_params, idx)
 }
 
 flow load_function_param_start_opt(comp :: Compiler, idx :: i64) -> LookupI64 {
-    yield load_csv_i64_opt(comp.fn_param_starts, idx)
-}
-
-flow load_next_function_param_start_opt(comp :: Compiler, start_pos :: i64) -> LookupI64Cursor {
-    yield csv_next_i64_opt(comp.fn_param_starts, start_pos)
+    yield load_indexed_u32_store_opt(comp.fn_param_starts, idx)
 }
 
 flow load_function_body_start_opt(comp :: Compiler, idx :: i64) -> LookupI64 {
-    yield load_csv_i64_opt(comp.fn_bodies, idx)
-}
-
-flow load_next_function_body_start_opt(comp :: Compiler, start_pos :: i64) -> LookupI64Cursor {
-    yield csv_next_i64_opt(comp.fn_bodies, start_pos)
+    yield load_indexed_u32_store_opt(comp.fn_bodies, idx)
 }
 
 flow load_function_local_count_opt(comp :: Compiler, idx :: i64) -> LookupI64 {
-    yield load_csv_i64_opt(comp.fn_local_counts, idx)
+    yield load_indexed_u32_store_opt(comp.fn_local_counts, idx)
 }
 
-flow load_next_function_local_count_opt(comp :: Compiler, start_pos :: i64) -> LookupI64Cursor {
-    yield csv_next_i64_opt(comp.fn_local_counts, start_pos)
+flow validate_function_metadata_tables(comp :: Compiler) -> i64 {
+    bind fn_total :: i64 = csv_count(comp.fn_names)
+    bind param_count_res :: LookupI64 = u32_store_count_opt(comp.fn_params)
+    bind param_start_count_res :: LookupI64 = u32_store_count_opt(comp.fn_param_starts)
+    bind body_count_res :: LookupI64 = u32_store_count_opt(comp.fn_bodies)
+    bind local_count_res :: LookupI64 = u32_store_count_opt(comp.fn_local_counts)
+    check param_count_res.found == 0 or param_count_res.value != fn_total {
+        yield 0
+    }
+    check param_start_count_res.found == 0 or param_start_count_res.value != fn_total {
+        yield 0
+    }
+    check body_count_res.found == 0 or body_count_res.value != fn_total {
+        yield 0
+    }
+    check local_count_res.found == 0 or local_count_res.value != fn_total {
+        yield 0
+    }
+    yield 1
 }
 
 flow load_builtin_offset_opt(comp :: Compiler, builtin_idx :: i64) -> LookupI64 {
@@ -726,8 +702,44 @@ flow is_known_function_offset(comp :: Compiler, target_offset :: i64) -> i64 {
     yield 0
 }
 
+flow pe_page_size() -> i64 {
+    yield 4096
+}
+
+flow pe_text_rva() -> i64 {
+    yield pe_page_size()
+}
+
+flow pe_reserved_text_vsize() -> i64 {
+    yield 1048576
+}
+
+flow pe_rdata_rva() -> i64 {
+    yield pe_text_rva() + pe_reserved_text_vsize()
+}
+
+flow pe_idata_rva() -> i64 {
+    yield pe_text_rva() + pe_reserved_text_vsize() + 16384
+}
+
+flow pe_bss_rva() -> i64 {
+    yield pe_text_rva() + pe_reserved_text_vsize() + 16384 + pe_page_size()
+}
+
+flow pe_iat_base_rva() -> i64 {
+    yield pe_idata_rva() + 60
+}
+
+flow iat_rva(slot :: i64) -> i64 {
+    bind iat_base :: i64 = pe_iat_base_rva()
+    check slot > 4 {
+        yield iat_base + (slot + 1) * 8
+    }
+    yield iat_base + slot * 8
+}
+
 flow is_known_rip_patch_target_rva(comp :: Compiler, target_rva :: i64) -> i64 {
-    bind rdata_rva :: i64 = 1052672
+    bind rdata_rva :: i64 = pe_rdata_rva()
     check target_rva >= rdata_rva and target_rva < rdata_rva + buf_len(comp.rdata) {
         yield 1
     }
@@ -779,10 +791,10 @@ flow empty_compiler(src :: str) -> Compiler {
     yield Compiler{
         src = src,
         fn_names = "",
-        fn_params = "",
-        fn_param_starts = "",
-        fn_bodies = "",
-        fn_local_counts = "",
+        fn_params = buf_new(),
+        fn_param_starts = buf_new(),
+        fn_bodies = buf_new(),
+        fn_local_counts = buf_new(),
         builtin_offsets = "",
         builtin_offset_store = buf_new(),
         fn_schedule_code_starts = buf_new(),
@@ -843,10 +855,10 @@ flow empty_local_compile_state(comp :: Compiler) -> Compiler {
     yield Compiler{
         src = comp.src,
         fn_names = comp.fn_names,
-        fn_params = "",
-        fn_param_starts = "",
-        fn_bodies = "",
-        fn_local_counts = "",
+        fn_params = comp.fn_params,
+        fn_param_starts = comp.fn_param_starts,
+        fn_bodies = comp.fn_bodies,
+        fn_local_counts = comp.fn_local_counts,
         builtin_offsets = "",
         builtin_offset_store = comp.builtin_offset_store,
         fn_schedule_code_starts = buf_new(),
@@ -960,10 +972,10 @@ flow collect_functions(src :: str) -> Compiler {
             bind body_start :: i64 = find_body_brace(src, lp.end)
             bind local_count :: i64 = count_locals(src, body_start)
             comp.fn_names <- csv_append(comp.fn_names, sp(src, name.start, name.end))
-            comp.fn_params <- csv_append(comp.fn_params, str_from_i64(pc))
-            comp.fn_param_starts <- csv_append(comp.fn_param_starts, str_from_i64(lp.end))
-            comp.fn_bodies <- csv_append(comp.fn_bodies, str_from_i64(body_start))
-            comp.fn_local_counts <- csv_append(comp.fn_local_counts, str_from_i64(local_count))
+            comp.fn_params <- emit_u32(comp.fn_params, pc)
+            comp.fn_param_starts <- emit_u32(comp.fn_param_starts, lp.end)
+            comp.fn_bodies <- emit_u32(comp.fn_bodies, body_start)
+            comp.fn_local_counts <- emit_u32(comp.fn_local_counts, local_count)
             p <- skip_braces(src, body_start, 1)
         } otherwise {
             p <- tok.end
@@ -1145,14 +1157,17 @@ flow x_add_reg_reg(buf :: i64, dst :: i64, src2 :: i64) -> i64 {
     yield b
 }
 
-flow emit_exit_process_imm32(buf :: i64, code :: i64) -> i64 {
-    vary b :: i64 = buf
+flow emit_exit_process_imm32(comp :: Compiler, code :: i64) -> Compiler {
+    vary b :: i64 = comp.code
     // mov ecx, imm32
     b <- buf_push(b, 185)
     b <- emit_u32(b, code)
     // call [rip + ExitProcess@IAT]
-    b <- x_call_iat(b, iat_rva(0), buf_len(b))
-    yield b
+    bind patch_off :: i64 = buf_len(b) + 2
+    b <- x_call_iat(b, 0, 0)
+    comp <- append_local_import_patch(comp, 0, patch_off)
+    comp.code <- b
+    yield comp
 }
 
 // sub reg1, reg2
@@ -1627,10 +1642,7 @@ flow compile_primary(comp :: Compiler, pos :: i64) -> Compiler {
                 // malloc struct using outer function's stack frame
                 comp.code <- x_sub_rsp_imm8(comp.code, 32)
                 comp.code <- x_mov_reg_imm64(comp.code, 1, ssize)
-                bind import_patch_off :: i64 = buf_len(comp.code) + 2
-                comp.code <- x_call_iat(comp.code, iat_rva(13), 0)
-                comp.import_patch_offsets <- csv_append(comp.import_patch_offsets, str_from_i64(import_patch_off))
-                comp.import_patch_targets <- csv_append(comp.import_patch_targets, "13")
+                comp <- emit_local_import_call(comp, 13)
                 comp.code <- x_add_rsp_imm8(comp.code, 32)
                 // rax = struct ptr. Save it
                 comp.code <- x_push_rax(comp.code)
@@ -2197,6 +2209,9 @@ flow validate_compiled_function_schedule_entry(compiled :: CompiledFunction, sch
     check schedule_entry.fn_idx != compiled.fn_idx {
         yield LookupStr{ found = 0, value = "cf sched idx bad" }
     }
+    check schedule_entry.code_start < 0 or schedule_entry.rdata_start < 0 {
+        yield LookupStr{ found = 0, value = "cf sched code bad" }
+    }
     check schedule_entry.code_size != buf_len(compiled.code_buf) {
         yield LookupStr{ found = 0, value = "cf sched code bad" }
     }
@@ -2207,25 +2222,59 @@ flow validate_compiled_function_schedule_entry(compiled :: CompiledFunction, sch
 }
 
 flow compiled_function_schedule_count(comp :: Compiler) -> i64 {
-    yield buf_len(comp.fn_schedule_code_starts) / 4
+    bind count_res :: LookupI64 = compiled_function_schedule_count_opt(comp)
+    check count_res.found == 0 {
+        yield -1
+    }
+    yield count_res.value
+}
+
+flow compiled_function_schedule_count_opt(comp :: Compiler) -> LookupI64 {
+    bind code_start_count_res :: LookupI64 = u32_store_count_opt(comp.fn_schedule_code_starts)
+    bind rdata_start_count_res :: LookupI64 = u32_store_count_opt(comp.fn_schedule_rdata_starts)
+    bind code_size_count_res :: LookupI64 = u32_store_count_opt(comp.fn_schedule_code_sizes)
+    bind rdata_size_count_res :: LookupI64 = u32_store_count_opt(comp.fn_schedule_rdata_sizes)
+    check code_start_count_res.found == 0 or rdata_start_count_res.found == 0 or code_size_count_res.found == 0 or rdata_size_count_res.found == 0 {
+        yield missing_i64()
+    }
+    check code_start_count_res.value != rdata_start_count_res.value or code_start_count_res.value != code_size_count_res.value or code_start_count_res.value != rdata_size_count_res.value {
+        yield missing_i64()
+    }
+    yield code_start_count_res
 }
 
 flow compiled_function_schedule_code_end(comp :: Compiler) -> i64 {
-    bind schedule_count :: i64 = compiled_function_schedule_count(comp)
+    bind schedule_count_res :: LookupI64 = compiled_function_schedule_count_opt(comp)
+    check schedule_count_res.found == 0 {
+        yield -1
+    }
+    bind schedule_count :: i64 = schedule_count_res.value
     check schedule_count == 0 {
         yield buf_len(comp.code)
     }
-    bind entry_pos :: i64 = (schedule_count - 1) * 4
-    yield load_u32_from_buf(comp.fn_schedule_code_starts, entry_pos) + load_u32_from_buf(comp.fn_schedule_code_sizes, entry_pos)
+    bind code_start_res :: LookupI64 = load_u32_store_opt(comp.fn_schedule_code_starts, schedule_count - 1)
+    bind code_size_res :: LookupI64 = load_u32_store_opt(comp.fn_schedule_code_sizes, schedule_count - 1)
+    check code_start_res.found == 0 or code_size_res.found == 0 {
+        yield -1
+    }
+    yield code_start_res.value + code_size_res.value
 }
 
 flow compiled_function_schedule_rdata_end(comp :: Compiler) -> i64 {
-    bind schedule_count :: i64 = compiled_function_schedule_count(comp)
+    bind schedule_count_res :: LookupI64 = compiled_function_schedule_count_opt(comp)
+    check schedule_count_res.found == 0 {
+        yield -1
+    }
+    bind schedule_count :: i64 = schedule_count_res.value
     check schedule_count == 0 {
         yield buf_len(comp.rdata)
     }
-    bind entry_pos :: i64 = (schedule_count - 1) * 4
-    yield load_u32_from_buf(comp.fn_schedule_rdata_starts, entry_pos) + load_u32_from_buf(comp.fn_schedule_rdata_sizes, entry_pos)
+    bind rdata_start_res :: LookupI64 = load_u32_store_opt(comp.fn_schedule_rdata_starts, schedule_count - 1)
+    bind rdata_size_res :: LookupI64 = load_u32_store_opt(comp.fn_schedule_rdata_sizes, schedule_count - 1)
+    check rdata_start_res.found == 0 or rdata_size_res.found == 0 {
+        yield -1
+    }
+    yield rdata_start_res.value + rdata_size_res.value
 }
 
 flow record_compiled_function_schedule(comp :: Compiler, schedule_entry :: CompiledFunctionScheduleEntry) -> Compiler {
@@ -2630,8 +2679,12 @@ flow compiled_function_executor_observed_phase_cost(comp :: Compiler) -> i64 {
         check completed_jobs <= 0 {
             yield 0
         }
+        bind patch_count_res :: LookupI64 = u32_store_pair_count_opt(comp.fn_artifact_patch_offset_store, comp.fn_artifact_patch_target_store)
+        check patch_count_res.found == 0 {
+            yield 2
+        }
         bind avg_code_size :: i64 = buf_len(comp.code) / completed_jobs
-        bind avg_patch_count :: i64 = (buf_len(comp.fn_artifact_patch_offset_store) / 4) / completed_jobs
+        bind avg_patch_count :: i64 = patch_count_res.value / completed_jobs
         check avg_code_size >= 1024 or avg_patch_count >= 24 {
             yield 2
         }
@@ -2645,7 +2698,11 @@ flow compiled_function_executor_observed_phase_cost(comp :: Compiler) -> i64 {
         check completed_apply_jobs <= 0 {
             yield 0
         }
-        bind avg_rip_patch_count :: i64 = (buf_len(comp.rip_patch_offsets_store) / 4) / completed_apply_jobs
+        bind rip_patch_count_res :: LookupI64 = u32_store_pair_count_opt(comp.rip_patch_offsets_store, comp.rip_patch_targets_store)
+        check rip_patch_count_res.found == 0 {
+            yield 2
+        }
+        bind avg_rip_patch_count :: i64 = rip_patch_count_res.value / completed_apply_jobs
         check avg_rip_patch_count >= 6 {
             yield 2
         }
@@ -2952,17 +3009,35 @@ flow pick_compiled_function_executor_slice_budget(comp :: Compiler, scheduler ::
 }
 
 flow record_compiled_function_artifact(comp :: Compiler, compiled :: CompiledFunction) -> Compiler {
+    bind patch_start_res :: LookupI64 = u32_store_pair_count_opt(comp.fn_artifact_patch_offset_store, comp.fn_artifact_patch_target_store)
+    bind rdata_patch_start_res :: LookupI64 = u32_store_pair_count_opt(comp.fn_artifact_rdata_patch_offset_store, comp.fn_artifact_rdata_patch_target_store)
+    bind import_patch_start_res :: LookupI64 = u32_store_pair_count_opt(comp.fn_artifact_import_patch_offset_store, comp.fn_artifact_import_patch_target_store)
+    check patch_start_res.found == 0 {
+        comp.failed <- 1
+        comp.failure_message <- "art p store"
+        yield comp
+    }
+    check rdata_patch_start_res.found == 0 {
+        comp.failed <- 1
+        comp.failure_message <- "art r store"
+        yield comp
+    }
+    check import_patch_start_res.found == 0 {
+        comp.failed <- 1
+        comp.failure_message <- "art i store"
+        yield comp
+    }
     comp.code <- buf_append(comp.code, compiled.code_buf)
     comp.rdata <- buf_append(comp.rdata, compiled.rdata_buf)
-    comp.fn_artifact_patch_offsets <- emit_u32(comp.fn_artifact_patch_offsets, buf_len(comp.fn_artifact_patch_offset_store) / 4)
+    comp.fn_artifact_patch_offsets <- emit_u32(comp.fn_artifact_patch_offsets, patch_start_res.value)
     comp.fn_artifact_patch_targets <- emit_u32(comp.fn_artifact_patch_targets, compiled.patch_count_local)
     comp.fn_artifact_patch_offset_store <- buf_append(comp.fn_artifact_patch_offset_store, compiled.patch_offsets_local_store)
     comp.fn_artifact_patch_target_store <- buf_append(comp.fn_artifact_patch_target_store, compiled.patch_targets_local_store)
-    comp.fn_artifact_rdata_patch_offsets <- emit_u32(comp.fn_artifact_rdata_patch_offsets, buf_len(comp.fn_artifact_rdata_patch_offset_store) / 4)
+    comp.fn_artifact_rdata_patch_offsets <- emit_u32(comp.fn_artifact_rdata_patch_offsets, rdata_patch_start_res.value)
     comp.fn_artifact_rdata_patch_targets <- emit_u32(comp.fn_artifact_rdata_patch_targets, compiled.rdata_patch_count_local)
     comp.fn_artifact_rdata_patch_offset_store <- buf_append(comp.fn_artifact_rdata_patch_offset_store, compiled.rdata_patch_offsets_local_store)
     comp.fn_artifact_rdata_patch_target_store <- buf_append(comp.fn_artifact_rdata_patch_target_store, compiled.rdata_patch_targets_local_store)
-    comp.fn_artifact_import_patch_offsets <- emit_u32(comp.fn_artifact_import_patch_offsets, buf_len(comp.fn_artifact_import_patch_offset_store) / 4)
+    comp.fn_artifact_import_patch_offsets <- emit_u32(comp.fn_artifact_import_patch_offsets, import_patch_start_res.value)
     comp.fn_artifact_import_patch_targets <- emit_u32(comp.fn_artifact_import_patch_targets, compiled.import_patch_count_local)
     comp.fn_artifact_import_patch_offset_store <- buf_append(comp.fn_artifact_import_patch_offset_store, compiled.import_patch_offsets_local_store)
     comp.fn_artifact_import_patch_target_store <- buf_append(comp.fn_artifact_import_patch_target_store, compiled.import_patch_targets_local_store)
@@ -3052,13 +3127,16 @@ flow compile_function_planned(comp :: Compiler, plan :: FunctionCompilePlan) -> 
 
     bind patch_offsets_local_store :: i64 = append_csv_i64_to_u32_store(buf_new(), local_comp.patch_offsets)
     bind patch_targets_local_store :: i64 = append_csv_i64_to_u32_store(buf_new(), local_comp.patch_targets)
-    bind patch_count_local :: i64 = buf_len(patch_offsets_local_store) / 4
+    bind patch_count_local_res :: LookupI64 = u32_store_pair_count_opt(patch_offsets_local_store, patch_targets_local_store)
+    bind patch_count_local :: i64 = patch_count_local_res.value
     bind rdata_patch_offsets_local_store :: i64 = append_csv_i64_to_u32_store(buf_new(), local_comp.rdata_patch_offsets)
     bind rdata_patch_targets_local_store :: i64 = append_csv_i64_to_u32_store(buf_new(), local_comp.rdata_patch_targets)
-    bind rdata_patch_count_local :: i64 = buf_len(rdata_patch_offsets_local_store) / 4
+    bind rdata_patch_count_local_res :: LookupI64 = u32_store_pair_count_opt(rdata_patch_offsets_local_store, rdata_patch_targets_local_store)
+    bind rdata_patch_count_local :: i64 = rdata_patch_count_local_res.value
     bind import_patch_offsets_local_store :: i64 = append_csv_i64_to_u32_store(buf_new(), local_comp.import_patch_offsets)
     bind import_patch_targets_local_store :: i64 = append_csv_i64_to_u32_store(buf_new(), local_comp.import_patch_targets)
-    bind import_patch_count_local :: i64 = buf_len(import_patch_offsets_local_store) / 4
+    bind import_patch_count_local_res :: LookupI64 = u32_store_pair_count_opt(import_patch_offsets_local_store, import_patch_targets_local_store)
+    bind import_patch_count_local :: i64 = import_patch_count_local_res.value
     yield CompiledFunction{
         fn_idx = plan.fn_idx,
         compile_ok = 1,
@@ -3238,6 +3316,11 @@ flow execute_compiled_function_job(comp :: Compiler, job :: CompiledFunctionJob)
 
 flow build_compiled_function_job_queue(comp :: Compiler) -> Compiler {
     bind scope :: LayoutScope = make_layout_scope(comp)
+    check validate_function_metadata_tables(comp) == 0 {
+        comp.failed <- 1
+        comp.failure_message <- "fn meta bad"
+        yield comp
+    }
     println("D queue+")
     vary i :: i64 = 0
     spin i < scope.user_func_count {
@@ -3586,17 +3669,20 @@ flow start_apply_user_functions_serial(comp :: Compiler) -> Compiler {
         comp.failure_message <- "art ic len"
         yield comp
     }
-    check buf_len(comp.fn_artifact_patch_offset_store) % 4 != 0 or buf_len(comp.fn_artifact_patch_offset_store) != buf_len(comp.fn_artifact_patch_target_store) {
+    bind patch_store_count_res :: LookupI64 = u32_store_pair_count_opt(comp.fn_artifact_patch_offset_store, comp.fn_artifact_patch_target_store)
+    bind rdata_patch_store_count_res :: LookupI64 = u32_store_pair_count_opt(comp.fn_artifact_rdata_patch_offset_store, comp.fn_artifact_rdata_patch_target_store)
+    bind import_patch_store_count_res :: LookupI64 = u32_store_pair_count_opt(comp.fn_artifact_import_patch_offset_store, comp.fn_artifact_import_patch_target_store)
+    check patch_store_count_res.found == 0 {
         comp.failed <- 1
         comp.failure_message <- "art p store"
         yield comp
     }
-    check buf_len(comp.fn_artifact_rdata_patch_offset_store) % 4 != 0 or buf_len(comp.fn_artifact_rdata_patch_offset_store) != buf_len(comp.fn_artifact_rdata_patch_target_store) {
+    check rdata_patch_store_count_res.found == 0 {
         comp.failed <- 1
         comp.failure_message <- "art r store"
         yield comp
     }
-    check buf_len(comp.fn_artifact_import_patch_offset_store) % 4 != 0 or buf_len(comp.fn_artifact_import_patch_offset_store) != buf_len(comp.fn_artifact_import_patch_target_store) {
+    check import_patch_store_count_res.found == 0 {
         comp.failed <- 1
         comp.failure_message <- "art i store"
         yield comp
@@ -3606,13 +3692,23 @@ flow start_apply_user_functions_serial(comp :: Compiler) -> Compiler {
     vary expected_import_patch_start :: i64 = 0
     vary art_idx :: i64 = 0
     spin art_idx < scope.user_func_count {
-        bind art_entry_pos :: i64 = art_idx * 4
-        bind patch_start :: i64 = load_u32_from_buf(comp.fn_artifact_patch_offsets, art_entry_pos)
-        bind patch_count :: i64 = load_u32_from_buf(comp.fn_artifact_patch_targets, art_entry_pos)
-        bind rdata_patch_start :: i64 = load_u32_from_buf(comp.fn_artifact_rdata_patch_offsets, art_entry_pos)
-        bind rdata_patch_count :: i64 = load_u32_from_buf(comp.fn_artifact_rdata_patch_targets, art_entry_pos)
-        bind import_patch_start :: i64 = load_u32_from_buf(comp.fn_artifact_import_patch_offsets, art_entry_pos)
-        bind import_patch_count :: i64 = load_u32_from_buf(comp.fn_artifact_import_patch_targets, art_entry_pos)
+        bind patch_start_res :: LookupI64 = load_u32_store_opt(comp.fn_artifact_patch_offsets, art_idx)
+        bind patch_count_res :: LookupI64 = load_u32_store_opt(comp.fn_artifact_patch_targets, art_idx)
+        bind rdata_patch_start_res :: LookupI64 = load_u32_store_opt(comp.fn_artifact_rdata_patch_offsets, art_idx)
+        bind rdata_patch_count_res :: LookupI64 = load_u32_store_opt(comp.fn_artifact_rdata_patch_targets, art_idx)
+        bind import_patch_start_res :: LookupI64 = load_u32_store_opt(comp.fn_artifact_import_patch_offsets, art_idx)
+        bind import_patch_count_res :: LookupI64 = load_u32_store_opt(comp.fn_artifact_import_patch_targets, art_idx)
+        check patch_start_res.found == 0 or patch_count_res.found == 0 or rdata_patch_start_res.found == 0 or rdata_patch_count_res.found == 0 or import_patch_start_res.found == 0 or import_patch_count_res.found == 0 {
+            comp.failed <- 1
+            comp.failure_message <- "art p hdr"
+            yield comp
+        }
+        bind patch_start :: i64 = patch_start_res.value
+        bind patch_count :: i64 = patch_count_res.value
+        bind rdata_patch_start :: i64 = rdata_patch_start_res.value
+        bind rdata_patch_count :: i64 = rdata_patch_count_res.value
+        bind import_patch_start :: i64 = import_patch_start_res.value
+        bind import_patch_count :: i64 = import_patch_count_res.value
         check patch_start != expected_patch_start {
             comp.failed <- 1
             comp.failure_message <- "art p hdr"
@@ -3628,17 +3724,17 @@ flow start_apply_user_functions_serial(comp :: Compiler) -> Compiler {
             comp.failure_message <- "art i hdr"
             yield comp
         }
-        check (patch_start + patch_count) * 4 > buf_len(comp.fn_artifact_patch_offset_store) or (patch_start + patch_count) * 4 > buf_len(comp.fn_artifact_patch_target_store) {
+        check patch_start + patch_count > patch_store_count_res.value {
             comp.failed <- 1
             comp.failure_message <- "art p span"
             yield comp
         }
-        check (rdata_patch_start + rdata_patch_count) * 4 > buf_len(comp.fn_artifact_rdata_patch_offset_store) or (rdata_patch_start + rdata_patch_count) * 4 > buf_len(comp.fn_artifact_rdata_patch_target_store) {
+        check rdata_patch_start + rdata_patch_count > rdata_patch_store_count_res.value {
             comp.failed <- 1
             comp.failure_message <- "art r span"
             yield comp
         }
-        check (import_patch_start + import_patch_count) * 4 > buf_len(comp.fn_artifact_import_patch_offset_store) or (import_patch_start + import_patch_count) * 4 > buf_len(comp.fn_artifact_import_patch_target_store) {
+        check import_patch_start + import_patch_count > import_patch_store_count_res.value {
             comp.failed <- 1
             comp.failure_message <- "art i span"
             yield comp
@@ -3648,17 +3744,17 @@ flow start_apply_user_functions_serial(comp :: Compiler) -> Compiler {
         expected_import_patch_start <- import_patch_start + import_patch_count
         art_idx <- art_idx + 1
     }
-    check expected_patch_start * 4 != buf_len(comp.fn_artifact_patch_offset_store) {
+    check expected_patch_start != patch_store_count_res.value {
         comp.failed <- 1
         comp.failure_message <- "art p total"
         yield comp
     }
-    check expected_rdata_patch_start * 4 != buf_len(comp.fn_artifact_rdata_patch_offset_store) {
+    check expected_rdata_patch_start != rdata_patch_store_count_res.value {
         comp.failed <- 1
         comp.failure_message <- "art r total"
         yield comp
     }
-    check expected_import_patch_start * 4 != buf_len(comp.fn_artifact_import_patch_offset_store) {
+    check expected_import_patch_start != import_patch_store_count_res.value {
         comp.failed <- 1
         comp.failure_message <- "art i total"
         yield comp
@@ -3666,7 +3762,13 @@ flow start_apply_user_functions_serial(comp :: Compiler) -> Compiler {
     vary effective_offsets :: i64 = buf_new()
     vary user_idx :: i64 = 0
     spin user_idx < scope.user_func_count {
-        effective_offsets <- emit_u32(effective_offsets, load_u32_from_buf(comp.fn_schedule_code_starts, user_idx * 4))
+        bind user_off_res :: LookupI64 = load_u32_store_opt(comp.fn_schedule_code_starts, user_idx)
+        check user_off_res.found == 0 {
+            comp.failed <- 1
+            comp.failure_message <- "cf c len bad"
+            yield comp
+        }
+        effective_offsets <- emit_u32(effective_offsets, user_off_res.value)
         user_idx <- user_idx + 1
     }
     vary builtin_idx :: i64 = 0
@@ -3709,28 +3811,65 @@ flow step_apply_user_functions_serial(comp :: Compiler) -> Compiler {
         }
         fn_name <- fn_name_res.value
     }
-    bind entry_pos :: i64 = i * 4
-    bind code_start :: i64 = load_u32_from_buf(comp.fn_schedule_code_starts, entry_pos)
-    bind rdata_start :: i64 = load_u32_from_buf(comp.fn_schedule_rdata_starts, entry_pos)
-    bind code_size :: i64 = load_u32_from_buf(comp.fn_schedule_code_sizes, entry_pos)
-    bind rdata_size :: i64 = load_u32_from_buf(comp.fn_schedule_rdata_sizes, entry_pos)
-    bind patch_start :: i64 = load_u32_from_buf(comp.fn_artifact_patch_offsets, entry_pos)
-    bind patch_count :: i64 = load_u32_from_buf(comp.fn_artifact_patch_targets, entry_pos)
-    bind rdata_patch_start :: i64 = load_u32_from_buf(comp.fn_artifact_rdata_patch_offsets, entry_pos)
-    bind rdata_patch_count :: i64 = load_u32_from_buf(comp.fn_artifact_rdata_patch_targets, entry_pos)
-    bind import_patch_start :: i64 = load_u32_from_buf(comp.fn_artifact_import_patch_offsets, entry_pos)
-    bind import_patch_count :: i64 = load_u32_from_buf(comp.fn_artifact_import_patch_targets, entry_pos)
-    check (patch_start + patch_count) * 4 > buf_len(comp.fn_artifact_patch_offset_store) or (patch_start + patch_count) * 4 > buf_len(comp.fn_artifact_patch_target_store) {
+    bind code_start_res :: LookupI64 = load_u32_store_opt(comp.fn_schedule_code_starts, i)
+    bind rdata_start_res :: LookupI64 = load_u32_store_opt(comp.fn_schedule_rdata_starts, i)
+    bind code_size_res :: LookupI64 = load_u32_store_opt(comp.fn_schedule_code_sizes, i)
+    bind rdata_size_res :: LookupI64 = load_u32_store_opt(comp.fn_schedule_rdata_sizes, i)
+    bind patch_start_res :: LookupI64 = load_u32_store_opt(comp.fn_artifact_patch_offsets, i)
+    bind patch_count_res :: LookupI64 = load_u32_store_opt(comp.fn_artifact_patch_targets, i)
+    bind rdata_patch_start_res :: LookupI64 = load_u32_store_opt(comp.fn_artifact_rdata_patch_offsets, i)
+    bind rdata_patch_count_res :: LookupI64 = load_u32_store_opt(comp.fn_artifact_rdata_patch_targets, i)
+    bind import_patch_start_res :: LookupI64 = load_u32_store_opt(comp.fn_artifact_import_patch_offsets, i)
+    bind import_patch_count_res :: LookupI64 = load_u32_store_opt(comp.fn_artifact_import_patch_targets, i)
+    check code_start_res.found == 0 or code_size_res.found == 0 {
+        comp.failed <- 1
+        comp.failure_message <- "apply c bad"
+        yield comp
+    }
+    check rdata_start_res.found == 0 or rdata_size_res.found == 0 {
+        comp.failed <- 1
+        comp.failure_message <- "apply r bad"
+        yield comp
+    }
+    check patch_start_res.found == 0 or patch_count_res.found == 0 {
         comp.failed <- 1
         comp.failure_message <- "apply p span"
         yield comp
     }
-    check (rdata_patch_start + rdata_patch_count) * 4 > buf_len(comp.fn_artifact_rdata_patch_offset_store) or (rdata_patch_start + rdata_patch_count) * 4 > buf_len(comp.fn_artifact_rdata_patch_target_store) {
+    check rdata_patch_start_res.found == 0 or rdata_patch_count_res.found == 0 {
         comp.failed <- 1
         comp.failure_message <- "apply r span"
         yield comp
     }
-    check (import_patch_start + import_patch_count) * 4 > buf_len(comp.fn_artifact_import_patch_offset_store) or (import_patch_start + import_patch_count) * 4 > buf_len(comp.fn_artifact_import_patch_target_store) {
+    check import_patch_start_res.found == 0 or import_patch_count_res.found == 0 {
+        comp.failed <- 1
+        comp.failure_message <- "apply i span"
+        yield comp
+    }
+    bind code_start :: i64 = code_start_res.value
+    bind rdata_start :: i64 = rdata_start_res.value
+    bind code_size :: i64 = code_size_res.value
+    bind rdata_size :: i64 = rdata_size_res.value
+    bind patch_start :: i64 = patch_start_res.value
+    bind patch_count :: i64 = patch_count_res.value
+    bind rdata_patch_start :: i64 = rdata_patch_start_res.value
+    bind rdata_patch_count :: i64 = rdata_patch_count_res.value
+    bind import_patch_start :: i64 = import_patch_start_res.value
+    bind import_patch_count :: i64 = import_patch_count_res.value
+    bind patch_store_count_res :: LookupI64 = u32_store_pair_count_opt(comp.fn_artifact_patch_offset_store, comp.fn_artifact_patch_target_store)
+    bind rdata_patch_store_count_res :: LookupI64 = u32_store_pair_count_opt(comp.fn_artifact_rdata_patch_offset_store, comp.fn_artifact_rdata_patch_target_store)
+    bind import_patch_store_count_res :: LookupI64 = u32_store_pair_count_opt(comp.fn_artifact_import_patch_offset_store, comp.fn_artifact_import_patch_target_store)
+    check patch_store_count_res.found == 0 or patch_start + patch_count > patch_store_count_res.value {
+        comp.failed <- 1
+        comp.failure_message <- "apply p span"
+        yield comp
+    }
+    check rdata_patch_store_count_res.found == 0 or rdata_patch_start + rdata_patch_count > rdata_patch_store_count_res.value {
+        comp.failed <- 1
+        comp.failure_message <- "apply r span"
+        yield comp
+    }
+    check import_patch_store_count_res.found == 0 or import_patch_start + import_patch_count > import_patch_store_count_res.value {
         comp.failed <- 1
         comp.failure_message <- "apply i span"
         yield comp
@@ -3746,33 +3885,40 @@ flow step_apply_user_functions_serial(comp :: Compiler) -> Compiler {
         yield comp
     }
     vary pi :: i64 = 0
-    vary patch_pos :: i64 = patch_start * 4
+    vary patch_pos :: i64 = patch_start
     spin pi < patch_count {
-        bind patch_offset :: i64 = load_u32_from_buf(comp.fn_artifact_patch_offset_store, patch_pos)
-        bind patch_target :: i64 = load_u32_from_buf(comp.fn_artifact_patch_target_store, patch_pos)
+        bind patch_offset_res :: LookupI64 = load_u32_store_opt(comp.fn_artifact_patch_offset_store, patch_pos)
+        bind patch_target_res :: LookupI64 = load_u32_store_opt(comp.fn_artifact_patch_target_store, patch_pos)
+        check patch_offset_res.found == 0 or patch_target_res.found == 0 {
+            comp.failed <- 1
+            comp.failure_message <- "apply p span"
+            yield comp
+        }
+        bind patch_offset :: i64 = patch_offset_res.value
+        bind patch_target :: i64 = patch_target_res.value
         check patch_offset + 3 >= code_size {
             comp.failed <- 1
             comp.failure_message <- "apply p off"
             yield comp
         }
-        bind target_pos :: i64 = patch_target * 4
-        check target_pos + 3 >= buf_len(comp.executor_effective_offsets) {
+        bind target_off_res :: LookupI64 = load_u32_store_opt(comp.executor_effective_offsets, patch_target)
+        check target_off_res.found == 0 {
             comp.failed <- 1
             comp.failure_message <- "apply p tgt"
             yield comp
         }
-        bind target_off :: i64 = load_u32_from_buf(comp.executor_effective_offsets, target_pos)
+        bind target_off :: i64 = target_off_res.value
         bind applied_patch_offset :: i64 = code_start + patch_offset
         comp.patch_offsets_store <- emit_u32(comp.patch_offsets_store, applied_patch_offset)
         comp.patch_targets_store <- emit_u32(comp.patch_targets_store, target_off)
-        patch_pos <- patch_pos + 4
+        patch_pos <- patch_pos + 1
         pi <- pi + 1
     }
     vary ri :: i64 = 0
     vary ii :: i64 = 0
-    vary rdata_patch_pos :: i64 = rdata_patch_start * 4
-    vary import_patch_pos :: i64 = import_patch_start * 4
-    bind rdata_rva_base :: i64 = 1052672 + rdata_start
+    vary rdata_patch_pos :: i64 = rdata_patch_start
+    vary import_patch_pos :: i64 = import_patch_start
+    bind rdata_rva_base :: i64 = pe_rdata_rva() + rdata_start
     spin ri < rdata_patch_count or ii < import_patch_count {
         vary use_rdata_patch :: i64 = 0
         vary patch_off_local :: i64 = 0
@@ -3782,13 +3928,27 @@ flow step_apply_user_functions_serial(comp :: Compiler) -> Compiler {
         vary next_import_patch_off :: i64 = 0
         vary next_import_target :: i64 = 0
         check ri < rdata_patch_count {
-            next_rdata_patch_off <- load_u32_from_buf(comp.fn_artifact_rdata_patch_offset_store, rdata_patch_pos)
-            next_rdata_target_off <- load_u32_from_buf(comp.fn_artifact_rdata_patch_target_store, rdata_patch_pos)
+            bind next_rdata_patch_off_res :: LookupI64 = load_u32_store_opt(comp.fn_artifact_rdata_patch_offset_store, rdata_patch_pos)
+            bind next_rdata_target_off_res :: LookupI64 = load_u32_store_opt(comp.fn_artifact_rdata_patch_target_store, rdata_patch_pos)
+            check next_rdata_patch_off_res.found == 0 or next_rdata_target_off_res.found == 0 {
+                comp.failed <- 1
+                comp.failure_message <- "apply r span"
+                yield comp
+            }
+            next_rdata_patch_off <- next_rdata_patch_off_res.value
+            next_rdata_target_off <- next_rdata_target_off_res.value
             use_rdata_patch <- 1
         }
         check ii < import_patch_count {
-            next_import_patch_off <- load_u32_from_buf(comp.fn_artifact_import_patch_offset_store, import_patch_pos)
-            next_import_target <- load_u32_from_buf(comp.fn_artifact_import_patch_target_store, import_patch_pos)
+            bind next_import_patch_off_res :: LookupI64 = load_u32_store_opt(comp.fn_artifact_import_patch_offset_store, import_patch_pos)
+            bind next_import_target_res :: LookupI64 = load_u32_store_opt(comp.fn_artifact_import_patch_target_store, import_patch_pos)
+            check next_import_patch_off_res.found == 0 or next_import_target_res.found == 0 {
+                comp.failed <- 1
+                comp.failure_message <- "apply i span"
+                yield comp
+            }
+            next_import_patch_off <- next_import_patch_off_res.value
+            next_import_target <- next_import_target_res.value
             check ri >= rdata_patch_count or next_import_patch_off < next_rdata_patch_off {
                 use_rdata_patch <- 0
             }
@@ -3806,7 +3966,7 @@ flow step_apply_user_functions_serial(comp :: Compiler) -> Compiler {
             }
             patch_off_local <- next_rdata_patch_off
             target_rva <- rdata_rva_base + next_rdata_target_off
-            rdata_patch_pos <- rdata_patch_pos + 4
+            rdata_patch_pos <- rdata_patch_pos + 1
             ri <- ri + 1
         } otherwise {
             check next_import_patch_off + 3 >= code_size {
@@ -3821,7 +3981,7 @@ flow step_apply_user_functions_serial(comp :: Compiler) -> Compiler {
             }
             patch_off_local <- next_import_patch_off
             target_rva <- iat_rva(next_import_target)
-            import_patch_pos <- import_patch_pos + 4
+            import_patch_pos <- import_patch_pos + 1
             ii <- ii + 1
         }
         bind applied_patch_offset :: i64 = code_start + patch_off_local
@@ -3880,7 +4040,12 @@ flow compile_user_functions_serial(comp :: Compiler) -> Compiler {
 
 flow validate_compiled_function_schedule_table(comp :: Compiler) -> i64 {
     bind scope :: LayoutScope = make_layout_scope(comp)
-    bind schedule_count :: i64 = compiled_function_schedule_count(comp)
+    bind schedule_count_res :: LookupI64 = compiled_function_schedule_count_opt(comp)
+    check schedule_count_res.found == 0 {
+        println("E cf sched cstart len")
+        yield 0
+    }
+    bind schedule_count :: i64 = schedule_count_res.value
     check schedule_count != scope.user_func_count {
         println(str_concat("E cf sched count ", str_concat(str_from_i64(scope.user_func_count), str_concat("/", str_from_i64(schedule_count)))))
         yield 0
@@ -3913,15 +4078,18 @@ flow validate_compiled_function_schedule_table(comp :: Compiler) -> i64 {
         println("E cf art i hdr len")
         yield 0
     }
-    check buf_len(comp.fn_artifact_patch_offset_store) % 4 != 0 or buf_len(comp.fn_artifact_patch_offset_store) != buf_len(comp.fn_artifact_patch_target_store) {
+    bind patch_store_count_res :: LookupI64 = u32_store_pair_count_opt(comp.fn_artifact_patch_offset_store, comp.fn_artifact_patch_target_store)
+    bind rdata_patch_store_count_res :: LookupI64 = u32_store_pair_count_opt(comp.fn_artifact_rdata_patch_offset_store, comp.fn_artifact_rdata_patch_target_store)
+    bind import_patch_store_count_res :: LookupI64 = u32_store_pair_count_opt(comp.fn_artifact_import_patch_offset_store, comp.fn_artifact_import_patch_target_store)
+    check patch_store_count_res.found == 0 {
         println("E cf art p store len")
         yield 0
     }
-    check buf_len(comp.fn_artifact_rdata_patch_offset_store) % 4 != 0 or buf_len(comp.fn_artifact_rdata_patch_offset_store) != buf_len(comp.fn_artifact_rdata_patch_target_store) {
+    check rdata_patch_store_count_res.found == 0 {
         println("E cf art r store len")
         yield 0
     }
-    check buf_len(comp.fn_artifact_import_patch_offset_store) % 4 != 0 or buf_len(comp.fn_artifact_import_patch_offset_store) != buf_len(comp.fn_artifact_import_patch_target_store) {
+    check import_patch_store_count_res.found == 0 {
         println("E cf art i store len")
         yield 0
     }
@@ -3930,10 +4098,18 @@ flow validate_compiled_function_schedule_table(comp :: Compiler) -> i64 {
     vary prev_code_end :: i64 = 0
     vary prev_rdata_end :: i64 = 0
     spin si < scope.user_func_count {
-        bind code_start :: i64 = load_u32_from_buf(comp.fn_schedule_code_starts, si * 4)
-        bind rdata_start :: i64 = load_u32_from_buf(comp.fn_schedule_rdata_starts, si * 4)
-        bind code_size :: i64 = load_u32_from_buf(comp.fn_schedule_code_sizes, si * 4)
-        bind rdata_size :: i64 = load_u32_from_buf(comp.fn_schedule_rdata_sizes, si * 4)
+        bind code_start_res :: LookupI64 = load_u32_store_opt(comp.fn_schedule_code_starts, si)
+        bind rdata_start_res :: LookupI64 = load_u32_store_opt(comp.fn_schedule_rdata_starts, si)
+        bind code_size_res :: LookupI64 = load_u32_store_opt(comp.fn_schedule_code_sizes, si)
+        bind rdata_size_res :: LookupI64 = load_u32_store_opt(comp.fn_schedule_rdata_sizes, si)
+        check code_start_res.found == 0 or rdata_start_res.found == 0 or code_size_res.found == 0 or rdata_size_res.found == 0 {
+            println("E cf sched cstart len")
+            yield 0
+        }
+        bind code_start :: i64 = code_start_res.value
+        bind rdata_start :: i64 = rdata_start_res.value
+        bind code_size :: i64 = code_size_res.value
+        bind rdata_size :: i64 = rdata_size_res.value
         check code_size < 0 or rdata_size < 0 {
             println(str_concat("E cf neg size ", str_from_i64(si)))
             yield 0
@@ -4064,6 +4240,11 @@ flow validate_compiled_function_patch_tables(comp :: Compiler, compiled :: Compi
 flow validate_compiled_function_offsets(comp :: Compiler) -> i64 {
     vary fn_idx :: i64 = 0
     bind total_function_count :: i64 = effective_function_offset_count(comp)
+    bind schedule_count_res :: LookupI64 = compiled_function_schedule_count_opt(comp)
+    check schedule_count_res.found == 0 {
+        yield 0
+    }
+    bind schedule_count :: i64 = schedule_count_res.value
     bind code_len :: i64 = buf_len(comp.code)
     spin fn_idx < total_function_count {
         bind offset_res :: LookupI64 = load_effective_function_offset_opt(comp, fn_idx)
@@ -4075,6 +4256,18 @@ flow validate_compiled_function_offsets(comp :: Compiler) -> i64 {
             println(str_concat("E fn off idx ", str_from_i64(fn_idx)))
             yield 0
         }
+        check fn_idx < schedule_count {
+            bind sched_off_res :: LookupI64 = load_u32_store_opt(comp.fn_schedule_code_starts, fn_idx)
+            check sched_off_res.found == 0 or offset_res.value != sched_off_res.value {
+                println(str_concat("E fn off user ", str_from_i64(fn_idx)))
+                yield 0
+            }
+        } otherwise {
+            bind builtin_off_res :: LookupI64 = load_builtin_offset_opt(comp, fn_idx - schedule_count)
+            check builtin_off_res.found == 0 or offset_res.value != builtin_off_res.value {
+                yield 0
+            }
+        }
         fn_idx <- fn_idx + 1
     }
 
@@ -4082,7 +4275,11 @@ flow validate_compiled_function_offsets(comp :: Compiler) -> i64 {
 }
 
 flow validate_final_patch_totals(comp :: Compiler) -> i64 {
-    bind schedule_count :: i64 = compiled_function_schedule_count(comp)
+    bind schedule_count_res :: LookupI64 = compiled_function_schedule_count_opt(comp)
+    check schedule_count_res.found == 0 {
+        yield 0
+    }
+    bind schedule_count :: i64 = schedule_count_res.value
     bind final_patch_count_res :: LookupI64 = u32_store_count_opt(comp.patch_offsets_store)
     bind final_patch_target_count_res :: LookupI64 = u32_store_count_opt(comp.patch_targets_store)
     bind final_rip_patch_count_res :: LookupI64 = u32_store_count_opt(comp.rip_patch_offsets_store)
@@ -4097,12 +4294,14 @@ flow validate_final_patch_totals(comp :: Compiler) -> i64 {
     vary expected_rip_patch_count :: i64 = 0
     vary si :: i64 = 0
     spin si < schedule_count {
-        bind entry_pos :: i64 = si * 4
-        bind patch_count :: i64 = load_u32_from_buf(comp.fn_artifact_patch_targets, entry_pos)
-        bind rdata_patch_count :: i64 = load_u32_from_buf(comp.fn_artifact_rdata_patch_targets, entry_pos)
-        bind import_patch_count :: i64 = load_u32_from_buf(comp.fn_artifact_import_patch_targets, entry_pos)
-        expected_patch_count <- expected_patch_count + patch_count
-        expected_rip_patch_count <- expected_rip_patch_count + rdata_patch_count + import_patch_count
+        bind patch_count_res :: LookupI64 = load_u32_store_opt(comp.fn_artifact_patch_targets, si)
+        bind rdata_patch_count_res :: LookupI64 = load_u32_store_opt(comp.fn_artifact_rdata_patch_targets, si)
+        bind import_patch_count_res :: LookupI64 = load_u32_store_opt(comp.fn_artifact_import_patch_targets, si)
+        check patch_count_res.found == 0 or rdata_patch_count_res.found == 0 or import_patch_count_res.found == 0 {
+            yield 0
+        }
+        expected_patch_count <- expected_patch_count + patch_count_res.value
+        expected_rip_patch_count <- expected_rip_patch_count + rdata_patch_count_res.value + import_patch_count_res.value
         si <- si + 1
     }
     check final_patch_count_res.value != expected_patch_count or final_patch_target_count_res.value != expected_patch_count {
@@ -4115,17 +4314,12 @@ flow validate_final_patch_totals(comp :: Compiler) -> i64 {
 }
 
 flow validate_final_patch_table(comp :: Compiler, entry_offset :: i64) -> i64 {
-    bind patch_count_res :: LookupI64 = u32_store_count_opt(comp.patch_offsets_store)
-    bind patch_target_count_res :: LookupI64 = u32_store_count_opt(comp.patch_targets_store)
-    check patch_count_res.found == 0 or patch_target_count_res.found == 0 {
+    bind patch_count_res :: LookupI64 = u32_store_pair_count_opt(comp.patch_offsets_store, comp.patch_targets_store)
+    check patch_count_res.found == 0 {
         println("E final patch align")
         yield 0
     }
     bind patch_count :: i64 = patch_count_res.value
-    check patch_target_count_res.value != patch_count {
-        println("E final patch count")
-        yield 0
-    }
     vary pi :: i64 = 0
     spin pi < patch_count {
         bind patch_off_res :: LookupI64 = load_u32_store_opt(comp.patch_offsets_store, pi)
@@ -4152,17 +4346,12 @@ flow validate_final_patch_table(comp :: Compiler, entry_offset :: i64) -> i64 {
 }
 
 flow validate_final_rip_patch_table(comp :: Compiler, entry_offset :: i64) -> i64 {
-    bind rip_patch_count_res :: LookupI64 = u32_store_count_opt(comp.rip_patch_offsets_store)
-    bind rip_patch_target_count_res :: LookupI64 = u32_store_count_opt(comp.rip_patch_targets_store)
-    check rip_patch_count_res.found == 0 or rip_patch_target_count_res.found == 0 {
+    bind rip_patch_count_res :: LookupI64 = u32_store_pair_count_opt(comp.rip_patch_offsets_store, comp.rip_patch_targets_store)
+    check rip_patch_count_res.found == 0 {
         println("E final rip align")
         yield 0
     }
     bind rip_patch_count :: i64 = rip_patch_count_res.value
-    check rip_patch_target_count_res.value != rip_patch_count {
-        println("E final rip count")
-        yield 0
-    }
     vary rpi :: i64 = 0
     spin rpi < rip_patch_count {
         bind patch_off_res :: LookupI64 = load_u32_store_opt(comp.rip_patch_offsets_store, rpi)
@@ -4186,16 +4375,20 @@ flow validate_final_rip_patch_table(comp :: Compiler, entry_offset :: i64) -> i6
 
 flow validate_final_layout_contract(comp :: Compiler, main_idx :: i64, main_code_offset :: i64, entry_offset :: i64) -> i64 {
     bind total_function_count :: i64 = effective_function_offset_count(comp)
-    bind schedule_count :: i64 = compiled_function_schedule_count(comp)
+    bind schedule_count_res :: LookupI64 = compiled_function_schedule_count_opt(comp)
+    check schedule_count_res.found == 0 {
+        yield 0
+    }
+    bind schedule_count :: i64 = schedule_count_res.value
     bind builtin_count :: i64 = builtin_function_count()
-    bind schedule_code_end :: i64 = compiled_function_schedule_code_end(comp)
-    bind schedule_rdata_end :: i64 = compiled_function_schedule_rdata_end(comp)
     bind final_count_res :: LookupI64 = u32_store_count_opt(comp.final_effective_offsets)
     bind exec_count_res :: LookupI64 = u32_store_count_opt(comp.executor_effective_offsets)
     check validate_compiled_function_schedule_table(comp) == 0 {
         println("E final sched")
         yield 0
     }
+    bind schedule_code_end :: i64 = compiled_function_schedule_code_end(comp)
+    bind schedule_rdata_end :: i64 = compiled_function_schedule_rdata_end(comp)
     check buf_len(comp.builtin_offset_store) != builtin_count * 4 {
         yield 0
     }
@@ -4217,51 +4410,25 @@ flow validate_final_layout_contract(comp :: Compiler, main_idx :: i64, main_code
         println("E final exec eff")
         yield 0
     }
-    check schedule_count > 0 {
-        bind first_sched_off :: i64 = load_u32_from_buf(comp.fn_schedule_code_starts, 0)
-        bind last_sched_off :: i64 = load_u32_from_buf(comp.fn_schedule_code_starts, (schedule_count - 1) * 4)
-        bind first_final_off_res :: LookupI64 = load_u32_store_opt(comp.final_effective_offsets, 0)
-        bind last_final_off_res :: LookupI64 = load_u32_store_opt(comp.final_effective_offsets, schedule_count - 1)
-        check first_final_off_res.found == 0 or first_final_off_res.value != first_sched_off {
-            yield 0
-        }
-        check last_final_off_res.found == 0 or last_final_off_res.value != last_sched_off {
-            yield 0
-        }
-        check buf_len(comp.executor_effective_offsets) > 0 {
-            bind first_exec_off_res :: LookupI64 = load_u32_store_opt(comp.executor_effective_offsets, 0)
-            bind last_exec_off_res :: LookupI64 = load_u32_store_opt(comp.executor_effective_offsets, schedule_count - 1)
-            check first_exec_off_res.found == 0 or first_exec_off_res.value != first_sched_off {
+    check buf_len(comp.executor_effective_offsets) > 0 {
+        vary exec_idx :: i64 = 0
+        spin exec_idx < total_function_count {
+            bind exec_off_res :: LookupI64 = load_u32_store_opt(comp.executor_effective_offsets, exec_idx)
+            check exec_off_res.found == 0 {
                 yield 0
             }
-            check last_exec_off_res.found == 0 or last_exec_off_res.value != last_sched_off {
-                yield 0
+            check exec_idx < schedule_count {
+                bind sched_off_res :: LookupI64 = load_u32_store_opt(comp.fn_schedule_code_starts, exec_idx)
+                check sched_off_res.found == 0 or exec_off_res.value != sched_off_res.value {
+                    yield 0
+                }
+            } otherwise {
+                bind builtin_off_res :: LookupI64 = load_builtin_offset_opt(comp, exec_idx - schedule_count)
+                check builtin_off_res.found == 0 or exec_off_res.value != builtin_off_res.value {
+                    yield 0
+                }
             }
-        }
-    }
-    check builtin_count > 0 {
-        bind first_builtin_off_res :: LookupI64 = load_u32_store_opt(comp.builtin_offset_store, 0)
-        bind last_builtin_off_res :: LookupI64 = load_u32_store_opt(comp.builtin_offset_store, builtin_count - 1)
-        bind first_final_builtin_res :: LookupI64 = load_u32_store_opt(comp.final_effective_offsets, schedule_count)
-        bind last_final_builtin_res :: LookupI64 = load_u32_store_opt(comp.final_effective_offsets, total_function_count - 1)
-        check first_builtin_off_res.found == 0 or last_builtin_off_res.found == 0 {
-            yield 0
-        }
-        check first_final_builtin_res.found == 0 or first_final_builtin_res.value != first_builtin_off_res.value {
-            yield 0
-        }
-        check last_final_builtin_res.found == 0 or last_final_builtin_res.value != last_builtin_off_res.value {
-            yield 0
-        }
-        check buf_len(comp.executor_effective_offsets) > 0 {
-            bind first_exec_builtin_res :: LookupI64 = load_u32_store_opt(comp.executor_effective_offsets, schedule_count)
-            bind last_exec_builtin_res :: LookupI64 = load_u32_store_opt(comp.executor_effective_offsets, total_function_count - 1)
-            check first_exec_builtin_res.found == 0 or first_exec_builtin_res.value != first_builtin_off_res.value {
-                yield 0
-            }
-            check last_exec_builtin_res.found == 0 or last_exec_builtin_res.value != last_builtin_off_res.value {
-                yield 0
-            }
+            exec_idx <- exec_idx + 1
         }
     }
     check validate_compiled_function_offsets(comp) == 0 or validate_final_patch_totals(comp) == 0 {
@@ -4296,7 +4463,7 @@ flow validate_final_layout_contract(comp :: Compiler, main_idx :: i64, main_code
 
 flow x_call_iat(buf :: i64, iat_slot_rva :: i64, current_code_off :: i64) -> i64 {
     vary b :: i64 = buf
-    bind text_rva :: i64 = 4096
+    bind text_rva :: i64 = pe_text_rva()
     bind rip_after :: i64 = text_rva + current_code_off + 6
     bind disp :: i64 = iat_slot_rva - rip_after
     b <- buf_push(b, 255)  // FF
@@ -4305,12 +4472,51 @@ flow x_call_iat(buf :: i64, iat_slot_rva :: i64, current_code_off :: i64) -> i64
     yield b
 }
 
+flow emit_runtime_import_call(code :: i64, import_slot :: i64) -> i64 {
+    yield x_call_iat(code, iat_rva(import_slot), buf_len(code))
+}
+
+flow empty_code_import_patch_state(code :: i64) -> CodeImportPatchState {
+    yield CodeImportPatchState{ code = code, import_patch_offsets = "", import_patch_targets = "" }
+}
+
+flow emit_deferred_runtime_import_call(state :: CodeImportPatchState, import_slot :: i64) -> CodeImportPatchState {
+    vary out :: CodeImportPatchState = state
+    bind patch_off :: i64 = buf_len(out.code) + 2
+    out.code <- x_call_iat(out.code, 0, 0)
+    out.import_patch_offsets <- csv_append(out.import_patch_offsets, str_from_i64(patch_off))
+    out.import_patch_targets <- csv_append(out.import_patch_targets, str_from_i64(import_slot))
+    yield out
+}
+
+flow append_deferred_runtime_import_patches(comp :: Compiler, state :: CodeImportPatchState) -> Compiler {
+    vary out :: Compiler = comp
+    out.import_patch_offsets <- state.import_patch_offsets
+    out.import_patch_targets <- state.import_patch_targets
+    yield out
+}
+
+flow append_local_import_patch(comp :: Compiler, import_slot :: i64, patch_off :: i64) -> Compiler {
+    vary out :: Compiler = comp
+    out.import_patch_offsets <- csv_append(out.import_patch_offsets, str_from_i64(patch_off))
+    out.import_patch_targets <- csv_append(out.import_patch_targets, str_from_i64(import_slot))
+    yield out
+}
+
+flow emit_local_import_call(comp :: Compiler, import_slot :: i64) -> Compiler {
+    vary out :: Compiler = comp
+    bind patch_off :: i64 = buf_len(out.code) + 2
+    out.code <- x_call_iat(out.code, 0, 0)
+    out <- append_local_import_patch(out, import_slot, patch_off)
+    yield out
+}
+
 flow build_pe(code_buf :: i64, rdata_buf :: i64, entry_offset :: i64) -> i64 {
     vary pe :: i64 = buf_new()
-    bind text_rva :: i64 = 4096       // 0x1000
-    bind rdata_rva :: i64 = 1052672   // 0x101000
-    bind idata_rva :: i64 = 1056768   // 0x102000
-    bind bss_rva :: i64 = 1060864     // 0x103000
+    bind text_rva :: i64 = pe_text_rva()
+    bind rdata_rva :: i64 = pe_rdata_rva()
+    bind idata_rva :: i64 = pe_idata_rva()
+    bind bss_rva :: i64 = pe_bss_rva()
 
     bind text_size :: i64 = buf_len(code_buf)
     bind text_raw :: i64 = ((text_size + 511) / 512) * 512
@@ -4349,7 +4555,7 @@ flow build_pe(code_buf :: i64, rdata_buf :: i64, entry_offset :: i64) -> i64 {
     pe <- emit_u32(pe, text_rva + entry_offset) // EntryPoint
     pe <- emit_u32(pe, text_rva)       // BaseOfCode
     pe <- emit_u64(pe, 4194304)        // ImageBase = 0x400000
-    pe <- emit_u32(pe, 4096)           // SectionAlignment
+    pe <- emit_u32(pe, pe_page_size()) // SectionAlignment
     pe <- emit_u32(pe, 512)            // FileAlignment
     pe <- emit_u16(pe, 6)              // OS version
     pe <- emit_u16(pe, 0)
@@ -4364,9 +4570,9 @@ flow build_pe(code_buf :: i64, rdata_buf :: i64, entry_offset :: i64) -> i64 {
     pe <- emit_u16(pe, 3)              // CONSOLE
     pe <- emit_u16(pe, 96)             // DYNAMIC_BASE | NX_COMPAT
     pe <- emit_u64(pe, 1048576)        // StackReserve
-    pe <- emit_u64(pe, 4096)           // StackCommit
+    pe <- emit_u64(pe, pe_page_size()) // StackCommit
     pe <- emit_u64(pe, 1048576)        // HeapReserve
-    pe <- emit_u64(pe, 4096)           // HeapCommit
+    pe <- emit_u64(pe, pe_page_size()) // HeapCommit
     pe <- emit_u32(pe, 0)              // LoaderFlags
     pe <- emit_u32(pe, 16)             // NumberOfRvaAndSizes
 
@@ -4395,7 +4601,7 @@ flow build_pe(code_buf :: i64, rdata_buf :: i64, entry_offset :: i64) -> i64 {
     // .rdata
     pe <- emit_bytes(pe, ".rdata")
     pe <- emit_zeros(pe, 2)
-    pe <- emit_u32(pe, rdata_size)
+    pe <- emit_u32(pe, 16384)
     pe <- emit_u32(pe, rdata_rva)
     pe <- emit_u32(pe, rdata_raw)
     pe <- emit_u32(pe, rdata_file)
@@ -4439,7 +4645,7 @@ flow build_pe(code_buf :: i64, rdata_buf :: i64, entry_offset :: i64) -> i64 {
     // Total IAT slots: 16 + 2 null = 18 entries
 
     bind idt_base :: i64 = idata_rva
-    bind iat_base :: i64 = idata_rva + 60     // after 3*20=60 IDT
+    bind iat_base :: i64 = pe_iat_base_rva()
     bind ilt_base :: i64 = iat_base + 144     // after 18*8=144
     bind names_base :: i64 = ilt_base + 144   // after ILT (same count)
 
@@ -4645,13 +4851,6 @@ flow build_pe(code_buf :: i64, rdata_buf :: i64, entry_offset :: i64) -> i64 {
 // SECTION 8: BUILTIN STUBS (native implementations)
 // ==================================================================
 
-flow iat_rva(slot :: i64) -> i64 {
-    check slot > 4 {
-        yield 1056768 + 60 + (slot + 1) * 8
-    }
-    yield 1056768 + 60 + slot * 8
-}
-
 // Emit builtin: ng_print(const char* s) -> calls printf("%s", s)
 // rcx = s. We need to set rcx=fmt, rdx=s, call printf
 flow emit_builtin_print(code :: i64, rdata_rva :: i64, fmt_s_off :: i64) -> i64 {
@@ -4665,13 +4864,13 @@ flow emit_builtin_print(code :: i64, rdata_rva :: i64, fmt_s_off :: i64) -> i64 
     // lea rcx, [rip + fmt_s_off] - "%s" format string
     bind lea_pos :: i64 = buf_len(b)
     bind fmt_rva :: i64 = rdata_rva + fmt_s_off
-    bind rip_after :: i64 = 4096 + lea_pos + 7  // text_rva + pos + instr_size
+    bind rip_after :: i64 = pe_text_rva() + lea_pos + 7
     b <- buf_push(b, 72)    // REX.W
     b <- buf_push(b, 141)   // 8D = LEA
     b <- buf_push(b, 13)    // 0D = ModRM for rcx, rip-relative
     b <- emit_u32(b, fmt_rva - rip_after)
     // call [IAT printf]
-    b <- x_call_iat(b, iat_rva(5), buf_len(b))
+    b <- emit_runtime_import_call(b, 5)
     // xor rax, rax; epilogue
     b <- x_xor_reg_reg(b, 0, 0)
     b <- x_mov_reg_reg(b, 4, 5)
@@ -4689,12 +4888,12 @@ flow emit_builtin_println(code :: i64, rdata_rva :: i64, fmt_sn_off :: i64) -> i
     b <- x_mov_reg_reg(b, 2, 1)
     bind lea_pos :: i64 = buf_len(b)
     bind fmt_rva :: i64 = rdata_rva + fmt_sn_off
-    bind rip_after :: i64 = 4096 + lea_pos + 7
+    bind rip_after :: i64 = pe_text_rva() + lea_pos + 7
     b <- buf_push(b, 72)
     b <- buf_push(b, 141)
     b <- buf_push(b, 13)
     b <- emit_u32(b, fmt_rva - rip_after)
-    b <- x_call_iat(b, iat_rva(5), buf_len(b))
+    b <- emit_runtime_import_call(b, 5)
     b <- x_xor_reg_reg(b, 0, 0)
     b <- x_mov_reg_reg(b, 4, 5)
     b <- x_pop_reg(b, 5)
@@ -4709,7 +4908,7 @@ flow emit_builtin_str_len(code :: i64) -> i64 {
     b <- x_mov_reg_reg(b, 5, 4)
     b <- x_sub_rsp_imm8(b, 32)
     // rcx already = s
-    b <- x_call_iat(b, iat_rva(6), buf_len(b))  // strlen
+    b <- emit_runtime_import_call(b, 6)  // strlen
     b <- x_mov_reg_reg(b, 4, 5)
     b <- x_pop_reg(b, 5)
     b <- x_ret(b)
@@ -4741,7 +4940,7 @@ flow emit_builtin_str_eq(code :: i64) -> i64 {
     b <- x_mov_reg_reg(b, 5, 4)
     b <- x_sub_rsp_imm8(b, 32)
     // rcx=a, rdx=b already set
-    b <- x_call_iat(b, iat_rva(7), buf_len(b))  // strcmp
+    b <- emit_runtime_import_call(b, 7)  // strcmp
     // rax = strcmp result. We want rax = (rax == 0)
     b <- buf_push(b, 72)  // REX.W test rax, rax
     b <- buf_push(b, 133)
@@ -4765,11 +4964,11 @@ flow emit_builtin_str_concat(code :: i64) -> i64 {
     b <- x_mov_rbp_off8_reg(b, -8, 1)
     b <- x_mov_rbp_off8_reg(b, -16, 2)
     // strlen(a): rcx already = a
-    b <- x_call_iat(b, iat_rva(6), buf_len(b))
+    b <- emit_runtime_import_call(b, 6)
     b <- x_mov_rbp_off8_reg(b, -24, 0)  // [rbp-24] = len_a
     // strlen(b)
     b <- x_mov_reg_rbp_off8(b, 1, -16)
-    b <- x_call_iat(b, iat_rva(6), buf_len(b))
+    b <- emit_runtime_import_call(b, 6)
     b <- x_mov_rbp_off8_reg(b, -32, 0)  // [rbp-32] = len_b
     // malloc(len_a + len_b + 1)
     b <- x_mov_reg_rbp_off8(b, 1, -24)
@@ -4779,7 +4978,7 @@ flow emit_builtin_str_concat(code :: i64) -> i64 {
     b <- buf_push(b, 131)
     b <- buf_push(b, 193)
     b <- buf_push(b, 1)
-    b <- x_call_iat(b, iat_rva(13), buf_len(b))
+    b <- emit_runtime_import_call(b, 13)
     b <- x_mov_rbp_off8_reg(b, -40, 0)  // [rbp-40] = result
     // memcpy(result, a, len_a): rcx=result, rdx=a, r8=len_a
     b <- x_mov_reg_reg(b, 1, 0)
@@ -4789,7 +4988,7 @@ flow emit_builtin_str_concat(code :: i64) -> i64 {
     b <- buf_push(b, 73)
     b <- buf_push(b, 137)
     b <- buf_push(b, 192)
-    b <- x_call_iat(b, iat_rva(8), buf_len(b))
+    b <- emit_runtime_import_call(b, 8)
     // memcpy(result+len_a, b, len_b+1): include null terminator
     b <- x_mov_reg_rbp_off8(b, 1, -40)
     b <- x_mov_reg_rbp_off8(b, 0, -24)
@@ -4805,7 +5004,7 @@ flow emit_builtin_str_concat(code :: i64) -> i64 {
     b <- buf_push(b, 73)
     b <- buf_push(b, 137)
     b <- buf_push(b, 192)
-    b <- x_call_iat(b, iat_rva(8), buf_len(b))
+    b <- emit_runtime_import_call(b, 8)
     // return result
     b <- x_mov_reg_rbp_off8(b, 0, -40)
     b <- x_mov_reg_reg(b, 4, 5)
@@ -4842,7 +5041,7 @@ flow emit_builtin_str_slice(code :: i64) -> i64 {
     b <- buf_push(b, 131)
     b <- buf_push(b, 193)
     b <- buf_push(b, 1)
-    b <- x_call_iat(b, iat_rva(13), buf_len(b))
+    b <- emit_runtime_import_call(b, 13)
     b <- x_mov_rbp_off8_reg(b, -40, 0)  // [rbp-40] = result
     // memcpy(result, s+start, len)
     b <- x_mov_reg_reg(b, 1, 0)  // rcx = result
@@ -4854,7 +5053,7 @@ flow emit_builtin_str_slice(code :: i64) -> i64 {
     b <- buf_push(b, 73)
     b <- buf_push(b, 137)
     b <- buf_push(b, 192)
-    b <- x_call_iat(b, iat_rva(8), buf_len(b))
+    b <- emit_runtime_import_call(b, 8)
     // null-terminate: result[len] = 0
     b <- x_mov_reg_rbp_off8(b, 0, -40)  // rax = result
     b <- x_mov_reg_rbp_off8(b, 1, -32)  // rcx = len
@@ -4880,14 +5079,14 @@ flow emit_builtin_str_from_i64(code :: i64, rdata_rva :: i64, fmt_lld_off :: i64
     b <- x_mov_rbp_off8_reg(b, -8, 1)  // [rbp-8] = n
     // malloc(32)
     b <- x_mov_reg_imm64(b, 1, 32)
-    b <- x_call_iat(b, iat_rva(13), buf_len(b))
+    b <- emit_runtime_import_call(b, 13)
     b <- x_mov_rbp_off8_reg(b, -16, 0)  // [rbp-16] = buf
     // sprintf(buf, "%lld", n): rcx=buf, rdx=fmt, r8=n
     b <- x_mov_reg_reg(b, 1, 0)  // rcx = buf
     // lea rdx, [rip+disp] for "%lld"
     bind lea_pos :: i64 = buf_len(b)
     bind fmt_rva :: i64 = rdata_rva + fmt_lld_off
-    bind rip_after :: i64 = 4096 + lea_pos + 7
+    bind rip_after :: i64 = pe_text_rva() + lea_pos + 7
     b <- buf_push(b, 72)   // REX.W
     b <- buf_push(b, 141)  // LEA
     b <- buf_push(b, 21)   // ModRM: rdx, [rip+disp32]
@@ -4897,7 +5096,7 @@ flow emit_builtin_str_from_i64(code :: i64, rdata_rva :: i64, fmt_lld_off :: i64
     b <- buf_push(b, 139)
     b <- buf_push(b, 69)
     b <- buf_push(b, 248)
-    b <- x_call_iat(b, iat_rva(9), buf_len(b))
+    b <- emit_runtime_import_call(b, 9)
     // return buf
     b <- x_mov_reg_rbp_off8(b, 0, -16)
     b <- x_mov_reg_reg(b, 4, 5)
@@ -4915,7 +5114,7 @@ flow emit_builtin_str_from_byte(code :: i64) -> i64 {
     b <- x_mov_rbp_off8_reg(b, -8, 1)  // [rbp-8] = ch
     // malloc(2)
     b <- x_mov_reg_imm64(b, 1, 2)
-    b <- x_call_iat(b, iat_rva(13), buf_len(b))
+    b <- emit_runtime_import_call(b, 13)
     // mov byte [rax], cl: put ch byte at result[0]
     b <- x_mov_reg_rbp_off8(b, 1, -8)
     // mov byte [rax], cl: 88 08
@@ -4941,7 +5140,7 @@ flow emit_builtin_buf_new(code :: i64) -> i64 {
     b <- x_sub_rsp_imm8(b, 32)
     // malloc(16+64) = 80
     b <- x_mov_reg_imm64(b, 1, 80)
-    b <- x_call_iat(b, iat_rva(13), buf_len(b))
+    b <- emit_runtime_import_call(b, 13)
     // [rax+0] = 64 (capacity)
     b <- x_mov_reg_imm64(b, 1, 64)
     // mov [rax], rcx: 48 89 08
@@ -5003,7 +5202,7 @@ flow emit_builtin_buf_push(code :: i64) -> i64 {
     b <- buf_push(b, 131)
     b <- buf_push(b, 193)
     b <- buf_push(b, 16)
-    b <- x_call_iat(b, iat_rva(13), buf_len(b))  // malloc
+    b <- emit_runtime_import_call(b, 13)  // malloc
     b <- x_mov_rbp_off8_reg(b, -40, 0)  // new_buf
     // copy: memcpy(new_buf, old_buf, 16 + old_len)
     b <- x_mov_reg_reg(b, 1, 0)  // dst = new_buf
@@ -5018,10 +5217,10 @@ flow emit_builtin_buf_push(code :: i64) -> i64 {
     b <- buf_push(b, 73)
     b <- buf_push(b, 137)
     b <- buf_push(b, 192)
-    b <- x_call_iat(b, iat_rva(8), buf_len(b))  // memcpy
+    b <- emit_runtime_import_call(b, 8)  // memcpy
     // free old buf
     b <- x_mov_reg_rbp_off8(b, 1, -8)
-    b <- x_call_iat(b, iat_rva(14), buf_len(b))  // free
+    b <- emit_runtime_import_call(b, 14)  // free
     // update buf ptr and cap
     b <- x_mov_reg_rbp_off8(b, 0, -40)
     b <- x_mov_rbp_off8_reg(b, -8, 0)  // buf = new_buf
@@ -5174,7 +5373,7 @@ flow emit_builtin_buf_append(code :: i64) -> i64 {
     b <- buf_push(b, 131)
     b <- buf_push(b, 193)
     b <- buf_push(b, 16)
-    b <- x_call_iat(b, iat_rva(13), buf_len(b))
+    b <- emit_runtime_import_call(b, 13)
     b <- x_mov_rbp_off8_reg(b, -48, 0)  // [rbp-48] = new_buf
     // memcpy(new_buf, old_dst, 16+dst_len)
     b <- x_mov_reg_reg(b, 1, 0)   // rcx = new_buf
@@ -5189,10 +5388,10 @@ flow emit_builtin_buf_append(code :: i64) -> i64 {
     b <- buf_push(b, 73)
     b <- buf_push(b, 137)
     b <- buf_push(b, 192)
-    b <- x_call_iat(b, iat_rva(8), buf_len(b))
+    b <- emit_runtime_import_call(b, 8)
     // free old dst
     b <- x_mov_reg_rbp_off8(b, 1, -8)
-    b <- x_call_iat(b, iat_rva(14), buf_len(b))
+    b <- emit_runtime_import_call(b, 14)
     // dst = new_buf, write new cap
     b <- x_mov_reg_rbp_off8(b, 0, -48)
     b <- x_mov_rbp_off8_reg(b, -8, 0)   // dst = new_buf
@@ -5224,7 +5423,7 @@ flow emit_builtin_buf_append(code :: i64) -> i64 {
     b <- buf_push(b, 73)
     b <- buf_push(b, 137)
     b <- buf_push(b, 192)
-    b <- x_call_iat(b, iat_rva(8), buf_len(b))
+    b <- emit_runtime_import_call(b, 8)
     // update dst len: [dst+8] = dst_len + src_len
     b <- x_mov_reg_rbp_off8(b, 0, -8)   // rax = dst
     b <- x_mov_reg_rbp_off8(b, 1, -32)  // rcx = dst_len
@@ -5251,13 +5450,13 @@ flow emit_builtin_file_create(code :: i64, rdata_rva :: i64, wb_off :: i64) -> i
     b <- x_sub_rsp_imm8(b, 32)
     // rcx = path, rdx = "wb"
     bind lea_pos :: i64 = buf_len(b)
-    bind rip_after :: i64 = 4096 + lea_pos + 7
+    bind rip_after :: i64 = pe_text_rva() + lea_pos + 7
     // lea rdx, [rip+disp] for "wb"
     b <- buf_push(b, 72)
     b <- buf_push(b, 141)
     b <- buf_push(b, 21)   // ModRM for rdx
     b <- emit_u32(b, rdata_rva + wb_off - rip_after)
-    b <- x_call_iat(b, iat_rva(10), buf_len(b))  // fopen
+    b <- emit_runtime_import_call(b, 10)  // fopen
     b <- x_mov_reg_reg(b, 4, 5)
     b <- x_pop_reg(b, 5)
     b <- x_ret(b)
@@ -5296,7 +5495,7 @@ flow emit_builtin_file_write_buf(code :: i64) -> i64 {
     b <- buf_push(b, 139)
     b <- buf_push(b, 77)
     b <- buf_push(b, 248)
-    b <- x_call_iat(b, iat_rva(11), buf_len(b))  // fwrite
+    b <- emit_runtime_import_call(b, 11)  // fwrite
     b <- x_mov_reg_reg(b, 4, 5)
     b <- x_pop_reg(b, 5)
     b <- x_ret(b)
@@ -5332,7 +5531,7 @@ flow emit_builtin_file_write_byte(code :: i64) -> i64 {
     b <- buf_push(b, 139)
     b <- buf_push(b, 77)
     b <- buf_push(b, 248)
-    b <- x_call_iat(b, iat_rva(11), buf_len(b))  // fwrite
+    b <- emit_runtime_import_call(b, 11)  // fwrite
     b <- x_mov_reg_reg(b, 4, 5)
     b <- x_pop_reg(b, 5)
     b <- x_ret(b)
@@ -5346,7 +5545,7 @@ flow emit_builtin_file_close(code :: i64) -> i64 {
     b <- x_mov_reg_reg(b, 5, 4)
     b <- x_sub_rsp_imm8(b, 32)
     // rcx = fd
-    b <- x_call_iat(b, iat_rva(12), buf_len(b))  // fclose
+    b <- emit_runtime_import_call(b, 12)  // fclose
     b <- x_mov_reg_reg(b, 4, 5)
     b <- x_pop_reg(b, 5)
     b <- x_ret(b)
@@ -5364,12 +5563,12 @@ flow emit_builtin_file_read_all_buf(code :: i64, rdata_rva :: i64, rb_off :: i64
 
     // fopen(path, "rb")
     bind lea_rb :: i64 = buf_len(b)
-    bind rip_rb :: i64 = 4096 + lea_rb + 7
+    bind rip_rb :: i64 = pe_text_rva() + lea_rb + 7
     b <- buf_push(b, 72)
     b <- buf_push(b, 141)
     b <- buf_push(b, 21)
     b <- emit_u32(b, rdata_rva + rb_off - rip_rb)
-    b <- x_call_iat(b, iat_rva(10), buf_len(b))
+    b <- emit_runtime_import_call(b, 10)
     b <- x_test_rax_rax(b)
     bind je_open_fail :: i64 = buf_len(b)
     b <- x_je_rel32(b, 0)
@@ -5377,7 +5576,7 @@ flow emit_builtin_file_read_all_buf(code :: i64, rdata_rva :: i64, rb_off :: i64
 
     // malloc initial buf: 16 + 4096
     b <- x_mov_reg_imm64(b, 1, 4112)
-    b <- x_call_iat(b, iat_rva(13), buf_len(b))
+    b <- emit_runtime_import_call(b, 13)
     b <- x_test_rax_rax(b)
     bind je_alloc_fail0 :: i64 = buf_len(b)
     b <- x_je_rel32(b, 0)
@@ -5427,7 +5626,7 @@ flow emit_builtin_file_read_all_buf(code :: i64, rdata_rva :: i64, rb_off :: i64
     b <- buf_push(b, 131)
     b <- buf_push(b, 193)
     b <- buf_push(b, 16)                // add rcx, 16
-    b <- x_call_iat(b, iat_rva(13), buf_len(b))
+    b <- emit_runtime_import_call(b, 13)
     b <- x_test_rax_rax(b)
     bind je_alloc_fail1 :: i64 = buf_len(b)
     b <- x_je_rel32(b, 0)
@@ -5444,11 +5643,11 @@ flow emit_builtin_file_read_all_buf(code :: i64, rdata_rva :: i64, rb_off :: i64
     b <- buf_push(b, 73)
     b <- buf_push(b, 137)
     b <- buf_push(b, 192)               // mov r8, rax
-    b <- x_call_iat(b, iat_rva(8), buf_len(b))
+    b <- emit_runtime_import_call(b, 8)
 
     // free old buf
     b <- x_mov_reg_rbp_off8(b, 1, -16)
-    b <- x_call_iat(b, iat_rva(14), buf_len(b))
+    b <- emit_runtime_import_call(b, 14)
 
     // buf = new_buf, [buf] = new_cap
     b <- x_mov_reg_rbp_off8(b, 0, -48)
@@ -5479,7 +5678,7 @@ flow emit_builtin_file_read_all_buf(code :: i64, rdata_rva :: i64, rb_off :: i64
     b <- buf_push(b, 139)
     b <- buf_push(b, 77)
     b <- buf_push(b, 248)               // mov r9, [rbp-8]
-    b <- x_call_iat(b, iat_rva(15), buf_len(b))
+    b <- emit_runtime_import_call(b, 15)
 
     b <- x_test_rax_rax(b)
     bind je_done :: i64 = buf_len(b)
@@ -5508,7 +5707,7 @@ flow emit_builtin_file_read_all_buf(code :: i64, rdata_rva :: i64, rb_off :: i64
     b <- patch_u32(b, je_done + 2, done - (je_done + 6))
     b <- patch_u32(b, jl_done + 2, done - (jl_done + 6))
     b <- x_mov_reg_rbp_off8(b, 1, -8)
-    b <- x_call_iat(b, iat_rva(12), buf_len(b))
+    b <- emit_runtime_import_call(b, 12)
 
     // return buf
     b <- x_mov_reg_rbp_off8(b, 0, -16)
@@ -5529,9 +5728,9 @@ flow emit_builtin_file_read_all_buf(code :: i64, rdata_rva :: i64, rb_off :: i64
     b <- patch_u32(b, je_alloc_fail0 + 2, alloc_fail - (je_alloc_fail0 + 6))
     b <- patch_u32(b, je_alloc_fail1 + 2, alloc_fail - (je_alloc_fail1 + 6))
     b <- x_mov_reg_rbp_off8(b, 1, -8)
-    b <- x_call_iat(b, iat_rva(12), buf_len(b))
+    b <- emit_runtime_import_call(b, 12)
     b <- x_mov_reg_rbp_off8(b, 1, -16)
-    b <- x_call_iat(b, iat_rva(14), buf_len(b))
+    b <- emit_runtime_import_call(b, 14)
     b <- x_mov_reg_imm64(b, 0, 0)
     bind ret_alloc_fail :: i64 = buf_len(b)
     b <- x_mov_reg_reg(b, 4, 5)
@@ -5551,12 +5750,12 @@ flow emit_builtin_file_read_all_text(code :: i64, rdata_rva :: i64, rb_off :: i6
 
     // fopen(path, "rb")
     bind lea_rb :: i64 = buf_len(b)
-    bind rip_rb :: i64 = 4096 + lea_rb + 7
+    bind rip_rb :: i64 = pe_text_rva() + lea_rb + 7
     b <- buf_push(b, 72)
     b <- buf_push(b, 141)
     b <- buf_push(b, 21)
     b <- emit_u32(b, rdata_rva + rb_off - rip_rb)
-    b <- x_call_iat(b, iat_rva(10), buf_len(b))
+    b <- emit_runtime_import_call(b, 10)
     b <- x_test_rax_rax(b)
     bind je_open_fail :: i64 = buf_len(b)
     b <- x_je_rel32(b, 0)
@@ -5564,7 +5763,7 @@ flow emit_builtin_file_read_all_text(code :: i64, rdata_rva :: i64, rb_off :: i6
 
     // malloc(1048577) for payload plus null terminator
     b <- x_mov_reg_imm64(b, 1, 1048577)
-    b <- x_call_iat(b, iat_rva(13), buf_len(b))
+    b <- emit_runtime_import_call(b, 13)
     b <- x_test_rax_rax(b)
     bind je_alloc_fail :: i64 = buf_len(b)
     b <- x_je_rel32(b, 0)
@@ -5581,7 +5780,7 @@ flow emit_builtin_file_read_all_text(code :: i64, rdata_rva :: i64, rb_off :: i6
     b <- buf_push(b, 139)
     b <- buf_push(b, 77)
     b <- buf_push(b, 248)               // mov r9, [rbp-8]
-    b <- x_call_iat(b, iat_rva(15), buf_len(b))
+    b <- emit_runtime_import_call(b, 15)
 
     // null terminate at buf[bytes_read]
     b <- x_mov_reg_rbp_off8(b, 1, -16)  // rcx = buf
@@ -5592,7 +5791,7 @@ flow emit_builtin_file_read_all_text(code :: i64, rdata_rva :: i64, rb_off :: i6
 
     // fclose(fd)
     b <- x_mov_reg_rbp_off8(b, 1, -8)
-    b <- x_call_iat(b, iat_rva(12), buf_len(b))
+    b <- emit_runtime_import_call(b, 12)
 
     // return buf
     b <- x_mov_reg_rbp_off8(b, 0, -16)
@@ -5604,14 +5803,14 @@ flow emit_builtin_file_read_all_text(code :: i64, rdata_rva :: i64, rb_off :: i6
     bind alloc_fail :: i64 = buf_len(b)
     b <- patch_u32(b, je_alloc_fail + 2, alloc_fail - (je_alloc_fail + 6))
     b <- x_mov_reg_rbp_off8(b, 1, -8)
-    b <- x_call_iat(b, iat_rva(12), buf_len(b))
+    b <- emit_runtime_import_call(b, 12)
 
     bind open_fail :: i64 = buf_len(b)
     b <- patch_u32(b, je_open_fail + 2, open_fail - (je_open_fail + 6))
 
     // return empty string on failure
     b <- x_mov_reg_imm64(b, 1, 1)
-    b <- x_call_iat(b, iat_rva(13), buf_len(b))
+    b <- emit_runtime_import_call(b, 13)
     b <- x_test_rax_rax(b)
     bind je_empty_null :: i64 = buf_len(b)
     b <- x_je_rel32(b, 0)
@@ -5650,6 +5849,12 @@ form RuntimeBootstrap {
     message :: str
 }
 
+form CodeImportPatchState {
+    code :: i64,
+    import_patch_offsets :: str,
+    import_patch_targets :: str
+}
+
 flow trace(msg :: str) -> i64 {
     println(msg)
     yield 0
@@ -5663,10 +5868,10 @@ flow fatal(msg :: str, code :: i64) -> i64 {
 flow append_builtin_registration(comp :: Compiler, name :: str, param_count :: i64, code_offset :: i64) -> Compiler {
     vary out :: Compiler = comp
     out.fn_names <- csv_append(out.fn_names, name)
-    out.fn_params <- csv_append(out.fn_params, str_from_i64(param_count))
-    out.fn_param_starts <- csv_append(out.fn_param_starts, "0")
-    out.fn_bodies <- csv_append(out.fn_bodies, "0")
-    out.fn_local_counts <- csv_append(out.fn_local_counts, "0")
+    out.fn_params <- emit_u32(out.fn_params, param_count)
+    out.fn_param_starts <- emit_u32(out.fn_param_starts, 0)
+    out.fn_bodies <- emit_u32(out.fn_bodies, 0)
+    out.fn_local_counts <- emit_u32(out.fn_local_counts, 0)
     out.builtin_offset_store <- emit_u32(out.builtin_offset_store, code_offset)
     yield out
 }
@@ -5820,26 +6025,31 @@ flow bootstrap_runtime(source :: str, rdata_rva :: i64, layout :: RuntimeRdataLa
     yield RuntimeBootstrap{ valid = 1, comp = comp, main_idx = main_idx, main_code_offset = comp.final_main_code_offset, exit_code = 0, message = "" }
 }
 
-flow emit_entry_stub_main0(code :: i64, main_code_offset :: i64) -> i64 {
-    vary b :: i64 = code
+flow emit_entry_stub_main0(comp :: Compiler, main_code_offset :: i64) -> Compiler {
+    vary b :: i64 = comp.code
     // Simple entry: call main(), ExitProcess(rax)
     b <- x_sub_rsp_imm8(b, 40)
     bind call_main0 :: i64 = buf_len(b)
     b <- x_call_rel32(b, main_code_offset - (call_main0 + 5))
     b <- x_mov_reg_reg(b, 1, 0)
-    b <- x_call_iat(b, iat_rva(0), buf_len(b))
-    yield b
+    bind patch_off :: i64 = buf_len(b) + 2
+    b <- x_call_iat(b, 0, 0)
+    comp <- append_local_import_patch(comp, 0, patch_off)
+    comp.code <- b
+    yield comp
 }
 
-flow emit_entry_stub_main1(code :: i64, main_code_offset :: i64, rdata_rva :: i64, rb_off :: i64) -> i64 {
-    vary b :: i64 = code
+flow emit_entry_stub_main1(comp :: Compiler, main_code_offset :: i64, rdata_rva :: i64, rb_off :: i64) -> Compiler {
+    vary b :: i64 = comp.code
     // File-reading entry: GetCommandLineA -> parse argv[1] -> fopen -> fread -> main(source)
     b <- x_push_reg(b, 5)
     b <- x_mov_reg_reg(b, 5, 4)
     b <- x_sub_rsp_imm8(b, 80)
 
     // GetCommandLineA() -> rax = command line string
-    b <- x_call_iat(b, iat_rva(4), buf_len(b))
+    bind get_cmd_patch_off :: i64 = buf_len(b) + 2
+    b <- x_call_iat(b, 0, 0)
+    comp <- append_local_import_patch(comp, 4, get_cmd_patch_off)
     b <- x_mov_rbp_off8_reg(b, -8, 0)
     b <- x_mov_reg_reg(b, 1, 0)
 
@@ -5883,12 +6093,14 @@ flow emit_entry_stub_main1(code :: i64, main_code_offset :: i64, rdata_rva :: i6
 
     // fopen(filename, "rb")
     bind lea_rb :: i64 = buf_len(b)
-    bind rip_rb :: i64 = 4096 + lea_rb + 7
+    bind rip_rb :: i64 = pe_text_rva() + lea_rb + 7
     b <- buf_push(b, 72)
     b <- buf_push(b, 141)
     b <- buf_push(b, 21)
     b <- emit_u32(b, rdata_rva + rb_off - rip_rb)
-    b <- x_call_iat(b, iat_rva(10), buf_len(b))
+    bind fopen_patch_off :: i64 = buf_len(b) + 2
+    b <- x_call_iat(b, 0, 0)
+    comp <- append_local_import_patch(comp, 10, fopen_patch_off)
     b <- x_test_rax_rax(b)
     bind je_open_fail :: i64 = buf_len(b)
     b <- x_je_rel32(b, 0)
@@ -5897,7 +6109,9 @@ flow emit_entry_stub_main1(code :: i64, main_code_offset :: i64, rdata_rva :: i6
     // malloc(1048576) = 1MB buffer
     b <- buf_push(b, 185)
     b <- emit_u32(b, 1048576)
-    b <- x_call_iat(b, iat_rva(13), buf_len(b))
+    bind malloc_patch_off :: i64 = buf_len(b) + 2
+    b <- x_call_iat(b, 0, 0)
+    comp <- append_local_import_patch(comp, 13, malloc_patch_off)
     b <- x_test_rax_rax(b)
     bind je_alloc_fail :: i64 = buf_len(b)
     b <- x_je_rel32(b, 0)
@@ -5914,7 +6128,9 @@ flow emit_entry_stub_main1(code :: i64, main_code_offset :: i64, rdata_rva :: i6
     b <- buf_push(b, 139)
     b <- buf_push(b, 77)
     b <- buf_push(b, 232)
-    b <- x_call_iat(b, iat_rva(15), buf_len(b))
+    bind fread_patch_off :: i64 = buf_len(b) + 2
+    b <- x_call_iat(b, 0, 0)
+    comp <- append_local_import_patch(comp, 15, fread_patch_off)
     b <- x_mov_rbp_off8_reg(b, -40, 0)
 
     // null-terminate: buffer[bytes_read] = 0
@@ -5926,7 +6142,9 @@ flow emit_entry_stub_main1(code :: i64, main_code_offset :: i64, rdata_rva :: i6
 
     // fclose(fd)
     b <- x_mov_reg_rbp_off8(b, 1, -24)
-    b <- x_call_iat(b, iat_rva(12), buf_len(b))
+    bind fclose_patch_off :: i64 = buf_len(b) + 2
+    b <- x_call_iat(b, 0, 0)
+    comp <- append_local_import_patch(comp, 12, fclose_patch_off)
 
     // call main(source)
     b <- x_mov_reg_rbp_off8(b, 1, -32)
@@ -5935,28 +6153,37 @@ flow emit_entry_stub_main1(code :: i64, main_code_offset :: i64, rdata_rva :: i6
 
     // ExitProcess(result)
     b <- x_mov_reg_reg(b, 1, 0)
-    b <- x_call_iat(b, iat_rva(0), buf_len(b))
+    bind exit_patch_off :: i64 = buf_len(b) + 2
+    b <- x_call_iat(b, 0, 0)
+    comp <- append_local_import_patch(comp, 0, exit_patch_off)
 
     // no_args: exit with standard compile/input error code
     bind no_args :: i64 = buf_len(b)
     b <- patch_u32(b, je_na1 + 2, no_args - (je_na1 + 6))
     b <- patch_u32(b, je_na2 + 2, no_args - (je_na2 + 6))
-    b <- emit_exit_process_imm32(b, 1)
+    comp.code <- b
+    comp <- emit_exit_process_imm32(comp, 1)
+    b <- comp.code
 
     bind open_fail :: i64 = buf_len(b)
     b <- patch_u32(b, je_open_fail + 2, open_fail - (je_open_fail + 6))
-    b <- emit_exit_process_imm32(b, 2)
+    comp.code <- b
+    comp <- emit_exit_process_imm32(comp, 2)
+    b <- comp.code
 
     bind alloc_fail :: i64 = buf_len(b)
     b <- patch_u32(b, je_alloc_fail + 2, alloc_fail - (je_alloc_fail + 6))
-    b <- emit_exit_process_imm32(b, 3)
-    yield b
+    comp.code <- b
+    comp <- emit_exit_process_imm32(comp, 3)
+    b <- comp.code
+    comp.code <- b
+    yield comp
 }
 
 flow compile_source_to_path(source :: str, output_path :: str) -> i64 {
     bind trace0 :: i64 = trace("D main")
     bind runtime_layout :: RuntimeRdataLayout = RuntimeRdataLayout{ fmt_s_off = 0, fmt_sn_off = 3, fmt_lld_off = 7, fmt_lld_no_nl_off = 13, wb_off = 18, rb_off = 21 }
-    bind rdata_rva :: i64 = 1052672
+    bind rdata_rva :: i64 = pe_rdata_rva()
     bind bootstrap :: RuntimeBootstrap = bootstrap_runtime(source, rdata_rva, runtime_layout)
     check bootstrap.valid == 0 {
         yield fatal(bootstrap.message, bootstrap.exit_code)
@@ -5964,84 +6191,119 @@ flow compile_source_to_path(source :: str, output_path :: str) -> i64 {
     bind comp0 :: Compiler = bootstrap.comp
     bind main_idx :: i64 = bootstrap.main_idx
     bind main_code_offset :: i64 = bootstrap.main_code_offset
-    bind trace6 :: i64 = trace("D entry+")
     bind entry_offset :: i64 = buf_len(comp0.code)
-    bind trace7 :: i64 = trace("D eoff")
     check main_code_offset < 0 or main_code_offset >= entry_offset {
         yield fatal("main off bad", 1)
     }
-    bind trace8 :: i64 = trace("D moff")
     bind main_params_res :: LookupI64 = load_function_param_count_opt(comp0, main_idx)
     check main_params_res.found == 0 {
         yield fatal("main params bad", 1)
     }
     bind main_params :: i64 = main_params_res.value
-    bind trace9 :: i64 = trace("D mpar")
     check main_params != 0 {
         check main_params != 1 {
             yield fatal("main arity bad", 4)
         }
     }
-    vary code_buf :: i64 = comp0.code
+    vary comp1 :: Compiler = comp0
+    comp1.import_patch_offsets <- ""
+    comp1.import_patch_targets <- ""
     check main_params == 1 {
-        bind trace10 :: i64 = trace("D e1+")
-        code_buf <- emit_entry_stub_main1(code_buf, main_code_offset, rdata_rva, runtime_layout.rb_off)
-        bind trace11 :: i64 = trace("D e1")
+        comp1 <- emit_entry_stub_main1(comp1, main_code_offset, rdata_rva, runtime_layout.rb_off)
     }
     check main_params == 0 {
-        bind trace12 :: i64 = trace("D e0+")
-        code_buf <- emit_entry_stub_main0(code_buf, main_code_offset)
-        bind trace13 :: i64 = trace("D e0")
+        comp1 <- emit_entry_stub_main0(comp1, main_code_offset)
     }
+    vary code_buf :: i64 = comp1.code
     bind trace14 :: i64 = trace("D entry")
     bind trace15 :: i64 = trace(str_concat("Code ", str_from_i64(buf_len(code_buf))))
-    bind patch_count :: i64 = buf_len(comp0.patch_offsets_store) / 4
+    bind patch_offset_count_res :: LookupI64 = u32_store_pair_count_opt(comp0.patch_offsets_store, comp0.patch_targets_store)
+    check patch_offset_count_res.found == 0 {
+        yield fatal("main off bad", 1)
+    }
+    bind patch_count :: i64 = patch_offset_count_res.value
     bind trace16 :: i64 = trace(str_concat("Patch ", str_from_i64(patch_count)))
-    bind rip_patch_count :: i64 = buf_len(comp0.rip_patch_offsets_store) / 4
+    bind entry_import_patch_offsets_store :: i64 = append_csv_i64_to_u32_store(buf_new(), comp1.import_patch_offsets)
+    bind entry_import_patch_targets_store :: i64 = append_csv_i64_to_u32_store(buf_new(), comp1.import_patch_targets)
+    bind entry_import_patch_count_res :: LookupI64 = u32_store_pair_count_opt(entry_import_patch_offsets_store, entry_import_patch_targets_store)
+    bind rip_patch_offset_count_res :: LookupI64 = u32_store_pair_count_opt(comp0.rip_patch_offsets_store, comp0.rip_patch_targets_store)
+    check entry_import_patch_count_res.found == 0 {
+        yield fatal("main off bad", 1)
+    }
+    check rip_patch_offset_count_res.found == 0 {
+        yield fatal("main off bad", 1)
+    }
+    bind entry_import_patch_count :: i64 = entry_import_patch_count_res.value
+    bind rip_patch_count :: i64 = rip_patch_offset_count_res.value + entry_import_patch_count
     bind trace16b :: i64 = trace(str_concat("RIP ", str_from_i64(rip_patch_count)))
     bind trace17 :: i64 = trace("D patch+")
     bind patch_offsets_buf :: i64 = comp0.patch_offsets_store
     bind patch_targets_buf :: i64 = comp0.patch_targets_store
-    bind rip_patch_offsets_buf :: i64 = comp0.rip_patch_offsets_store
-    bind rip_patch_targets_buf :: i64 = comp0.rip_patch_targets_store
+    vary rip_patch_offsets_buf :: i64 = comp0.rip_patch_offsets_store
+    vary rip_patch_targets_buf :: i64 = comp0.rip_patch_targets_store
     vary patch_log_step :: i64 = 250
     check patch_count > 1000 {
         patch_log_step <- 1000
     }
     vary pi :: i64 = 0
-    vary patch_pos :: i64 = 0
     vary next_patch_log :: i64 = 0
     spin pi < patch_count {
         check pi == next_patch_log or pi + 1 == patch_count {
             bind trace18 :: i64 = trace(str_concat("P ", str_concat(str_from_i64(pi + 1), str_concat("/", str_from_i64(patch_count)))))
             next_patch_log <- next_patch_log + patch_log_step
         }
-        bind patch_off :: i64 = load_u32_from_buf(patch_offsets_buf, patch_pos)
-        bind target_code_off :: i64 = load_u32_from_buf(patch_targets_buf, patch_pos)
+        bind patch_off_res :: LookupI64 = load_u32_store_opt(patch_offsets_buf, pi)
+        bind target_code_off_res :: LookupI64 = load_u32_store_opt(patch_targets_buf, pi)
+        check patch_off_res.found == 0 or target_code_off_res.found == 0 {
+            yield fatal("main off bad", 1)
+        }
+        bind patch_off :: i64 = patch_off_res.value
+        bind target_code_off :: i64 = target_code_off_res.value
         bind rel :: i64 = target_code_off - (patch_off + 4)
         code_buf <- patch_u32(code_buf, patch_off, rel)
-        patch_pos <- patch_pos + 4
         pi <- pi + 1
     }
     bind trace19 :: i64 = trace("D patch")
+    vary epi :: i64 = 0
+    spin epi < entry_import_patch_count {
+        bind patch_off_res :: LookupI64 = load_u32_store_opt(entry_import_patch_offsets_store, epi)
+        bind import_slot_res :: LookupI64 = load_u32_store_opt(entry_import_patch_targets_store, epi)
+        check patch_off_res.found == 0 or import_slot_res.found == 0 {
+            yield fatal("main off bad", 1)
+        }
+        bind patch_off :: i64 = patch_off_res.value
+        bind import_slot :: i64 = import_slot_res.value
+        check patch_off < 0 or patch_off + 3 >= buf_len(code_buf) {
+            yield fatal("main off bad", 1)
+        }
+        check import_slot < 0 or import_slot >= import_slot_count() {
+            yield fatal("main params bad", 1)
+        }
+        rip_patch_offsets_buf <- emit_u32(rip_patch_offsets_buf, patch_off)
+        rip_patch_targets_buf <- emit_u32(rip_patch_targets_buf, iat_rva(import_slot))
+        epi <- epi + 1
+    }
     bind trace19b :: i64 = trace("D rip+")
     vary rip_log_step :: i64 = 250
     check rip_patch_count > 200 {
         rip_log_step <- 500
     }
     vary rpi :: i64 = 0
-    vary rip_patch_pos :: i64 = 0
     vary next_rip_log :: i64 = 0
     spin rpi < rip_patch_count {
         check rpi == next_rip_log or rpi + 1 == rip_patch_count {
             bind trace19c :: i64 = trace(str_concat("RP ", str_concat(str_from_i64(rpi + 1), str_concat("/", str_from_i64(rip_patch_count)))))
             next_rip_log <- next_rip_log + rip_log_step
         }
-        bind patch_off :: i64 = load_u32_from_buf(rip_patch_offsets_buf, rip_patch_pos)
-        bind target_rva :: i64 = load_u32_from_buf(rip_patch_targets_buf, rip_patch_pos)
-        bind rel :: i64 = target_rva - (4096 + patch_off + 4)
+        bind patch_off_res :: LookupI64 = load_u32_store_opt(rip_patch_offsets_buf, rpi)
+        bind target_rva_res :: LookupI64 = load_u32_store_opt(rip_patch_targets_buf, rpi)
+        check patch_off_res.found == 0 or target_rva_res.found == 0 {
+            yield fatal("main off bad", 1)
+        }
+        bind patch_off :: i64 = patch_off_res.value
+        bind target_rva :: i64 = target_rva_res.value
+        bind rel :: i64 = target_rva - (pe_text_rva() + patch_off + 4)
         code_buf <- patch_u32(code_buf, patch_off, rel)
-        rip_patch_pos <- rip_patch_pos + 4
         rpi <- rpi + 1
     }
     bind trace19d :: i64 = trace("D rip")

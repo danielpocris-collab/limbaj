@@ -2,6 +2,24 @@
 
 Selfhosted compiler worktree on the `ng -> Axiom` path.
 
+## Project Mission
+
+The goal of this project is not only to make the language safer in isolation.
+
+The goal is to build a system that eliminates bugs across the entire declared surface:
+
+- program logic
+- compiler
+- runtime
+- toolchain
+- external boundaries
+- concurrency
+- time
+- distribution
+- security
+
+In the canonical documents, every strong correctness claim must still be read modulo the explicit TCB and the declared supported surface.
+
 ## Canonical Path
 
 This workspace is selfhost-only.
@@ -14,13 +32,13 @@ This workspace is selfhost-only.
   - `powershell -ExecutionPolicy Bypass -File .\run_bootstrap_vertical.ps1 -MaxParallel 2`
 
 The old Rust host path was removed from this worktree on `2026-04-16` to eliminate dual-entry confusion.
-The local workspace currently does not contain `ng_selfhost_clean.exe`; restore it from cache or external backup before running the canonical scripts.
+If `ng_selfhost_clean.exe` is missing locally, restore it from cache or external backup before running the canonical scripts.
 
 ## Current Checkpoint
 
 - Fixed point: `ng_selfhost_clean.exe == output.exe == ngc_gen1_bootstrap.exe == ngc_gen2_bootstrap.exe`
-- Size: `161280`
-- SHA-256: `25DCECD94D17BBBF1BBCFFE36EC009F19BC7E5B7094C061D70E56A0FA3541012`
+- Size: `175104`
+- SHA-256: `D0D08BF340B220D904064DF4FFF87D2CD987958E760BFBE217E4CAE376C71653`
 
 ## Active Documents
 
@@ -29,6 +47,7 @@ The local workspace currently does not contain `ng_selfhost_clean.exe`; restore 
 - [TCB.md](C:/Users/pocri/OneDrive/Desktop/limbaj/.claude/worktrees/thirsty-proskuriakova/TCB.md)
 - [SEMANTICS_CORE.md](C:/Users/pocri/OneDrive/Desktop/limbaj/.claude/worktrees/thirsty-proskuriakova/SEMANTICS_CORE.md)
 - [NG_TO_AXIOM_ROADMAP.md](C:/Users/pocri/OneDrive/Desktop/limbaj/.claude/worktrees/thirsty-proskuriakova/NG_TO_AXIOM_ROADMAP.md)
+- [BUG_ELIMINATION_STACK.md](C:/Users/pocri/OneDrive/Desktop/limbaj/.claude/worktrees/thirsty-proskuriakova/BUG_ELIMINATION_STACK.md)
 - [BUG_HISTORY.md](C:/Users/pocri/OneDrive/Desktop/limbaj/.claude/worktrees/thirsty-proskuriakova/BUG_HISTORY.md)
 - [ERROR_CATALOG.md](C:/Users/pocri/OneDrive/Desktop/limbaj/.claude/worktrees/thirsty-proskuriakova/ERROR_CATALOG.md)
 - [BOOTSTRAP_REPRO_AUDIT.md](C:/Users/pocri/OneDrive/Desktop/limbaj/.claude/worktrees/thirsty-proskuriakova/BOOTSTRAP_REPRO_AUDIT.md)
@@ -74,16 +93,33 @@ Trust root backup after any restored/promoted checkpoint:
 powershell -ExecutionPolicy Bypass -File .\backup_trust_root.ps1
 ```
 
+Workspace scratch cleanup:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\clean_workspace_scratch.ps1
+```
+
+Canonical repo artifact check:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\verify_canonical_repo_artifacts.ps1
+```
+
+Canonical PE layout contract check:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\verify_pe_layout_contract.ps1
+```
+
 ## Current Focus
 
-The current official next step is Block 1 hardening on the large `ng_native.ng -> ng_native.ng` path:
+Block 1 hardening on the large `ng_native.ng -> ng_native.ng` path is closed for the current canonical surface.
 
-- `validate_final_layout_contract(...)`
-- patch / rdata / import validation
-- removal of the last direct CSV lookups and scans from the hot path
-- restore `ng_selfhost_clean.exe` into the workspace before any new canonical verification run
-- freeze the supported core, TCB and bug-free gates in the new canon docs before any strong correctness claim
-- keep bootstrap/direct build dirs ephemeral and reset inside the workspace before each canonical build
+The current official blocker is the fixed PE layout cliff:
+
+- replace the fixed `.rdata` / `.idata` window with dynamically calculated RVAs
+- keep the canonical scripts serial because direct/bootstrap work dirs are shared
+- keep TCB and bug-free gates synchronized before any strong correctness claim
 
 ## Notes
 
@@ -91,7 +127,9 @@ The current official next step is Block 1 hardening on the large `ng_native.ng -
 - `STATUS.md` is the active source of truth for current state and next steps.
 - use `restore_trust_root.ps1` to restore the local trust root from `%LOCALAPPDATA%\Limbaj\trust-root-cache` when available.
 - use `backup_trust_root.ps1` immediately after any restored or promoted checkpoint so cleanup does not strand the workspace again.
+- use `verify_canonical_repo_artifacts.ps1` to confirm that the repo-kept trust root, corpus fixture and reference executables still match the canonical checkpoint.
 - `BUG_FREE_ACCEPTANCE.md` defines when `bug-free` can be said onest and on what surface.
 - `TCB.md` lists the current trust base and what still has to leave it.
 - `SEMANTICS_CORE.md` fixes the semantic surface that future proofs and validators must preserve.
+- `BUG_ELIMINATION_STACK.md` defines the full project-level stack on which bug elimination is expected, not just the currently green canonical slice.
 - Historical documents may still mention the retired Rust host path; treat those references as archival only.

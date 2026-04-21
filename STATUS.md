@@ -6,12 +6,23 @@ Acest fisier ramane sursa operationala de adevar pentru worktree-ul curent.
 
 - worktree activ: `thirsty-proskuriakova`
 - directie oficiala: `ng -> Axiom`
+- misiune oficiala: construim un sistem care elimina buguri pe toata suprafata declarata:
+  - program
+  - compiler
+  - runtime
+  - toolchain
+  - frontiere externe
+  - concurenta
+  - timp
+  - distributie
+  - securitate
 - traseu canonic: `ng_native.ng -> ng_native.ng`
 - trust root canonic: `ng_selfhost_clean.exe`
 - document canonic: [NG_TO_AXIOM_ROADMAP.md](C:/Users/pocri/OneDrive/Desktop/limbaj/.claude/worktrees/thirsty-proskuriakova/NG_TO_AXIOM_ROADMAP.md)
 - acceptance gates: [BUG_FREE_ACCEPTANCE.md](C:/Users/pocri/OneDrive/Desktop/limbaj/.claude/worktrees/thirsty-proskuriakova/BUG_FREE_ACCEPTANCE.md)
 - trust base: [TCB.md](C:/Users/pocri/OneDrive/Desktop/limbaj/.claude/worktrees/thirsty-proskuriakova/TCB.md)
 - semantic core: [SEMANTICS_CORE.md](C:/Users/pocri/OneDrive/Desktop/limbaj/.claude/worktrees/thirsty-proskuriakova/SEMANTICS_CORE.md)
+- stack de eliminare a bugurilor: [BUG_ELIMINATION_STACK.md](C:/Users/pocri/OneDrive/Desktop/limbaj/.claude/worktrees/thirsty-proskuriakova/BUG_ELIMINATION_STACK.md)
 - istoric buguri: [BUG_HISTORY.md](C:/Users/pocri/OneDrive/Desktop/limbaj/.claude/worktrees/thirsty-proskuriakova/BUG_HISTORY.md)
 - catalog erori: [ERROR_CATALOG.md](C:/Users/pocri/OneDrive/Desktop/limbaj/.claude/worktrees/thirsty-proskuriakova/ERROR_CATALOG.md)
 
@@ -26,19 +37,196 @@ Acest fisier ramane sursa operationala de adevar pentru worktree-ul curent.
 - scripturi de igiena pentru trust root:
   - [restore_trust_root.ps1](C:/Users/pocri/OneDrive/Desktop/limbaj/.claude/worktrees/thirsty-proskuriakova/restore_trust_root.ps1)
   - [backup_trust_root.ps1](C:/Users/pocri/OneDrive/Desktop/limbaj/.claude/worktrees/thirsty-proskuriakova/backup_trust_root.ps1)
+- script de igiena pentru scratch local:
+  - [clean_workspace_scratch.ps1](C:/Users/pocri/OneDrive/Desktop/limbaj/.claude/worktrees/thirsty-proskuriakova/clean_workspace_scratch.ps1)
+- script de verificare pentru artefactele canonice pastrate in repo:
+  - [verify_canonical_repo_artifacts.ps1](C:/Users/pocri/OneDrive/Desktop/limbaj/.claude/worktrees/thirsty-proskuriakova/verify_canonical_repo_artifacts.ps1)
+- script de verificare pentru contractul PE canonic (`.rdata` / `.idata` / `.bss`):
+  - [verify_pe_layout_contract.ps1](C:/Users/pocri/OneDrive/Desktop/limbaj/.claude/worktrees/thirsty-proskuriakova/verify_pe_layout_contract.ps1)
 - compilatorul activ este [ng_native.ng](C:/Users/pocri/OneDrive/Desktop/limbaj/.claude/worktrees/thirsty-proskuriakova/ng_native.ng)
-- fixed point-ul checkpoint-ului promovat ramas canonic este:
+- fixed point-ul checkpoint-ului promovat curent este:
   - `ng_selfhost_clean.exe == output.exe == ngc_gen1_bootstrap.exe == ngc_gen2_bootstrap.exe`
-  - size `161280`
-  - SHA-256 `25DCECD94D17BBBF1BBCFFE36EC009F19BC7E5B7094C061D70E56A0FA3541012`
-- candidatul selfhost curent validat, dar inca nepromovat, este:
-  - `output.exe == direct_stack_compiler\output.exe == direct_fixed_point_selfhost_clean.exe == ngc_gen1_bootstrap.exe == ngc_gen2_bootstrap.exe == bootstrap_gen1\output.exe == bootstrap_gen2\output.exe`
-  - size `171520`
-  - SHA-256 `417188498A10B9219924E12B7804463A780EC5E73ACBBF1902B4898660A17CBD`
-- local, `ng_selfhost_clean.exe` lipseste acum din workspace dupa cleanup-ul de artefacte; metadatele checkpoint-ului raman canonice, dar rerularea entrypoint-urilor canonice este blocata pana la restaurarea binarului din cache sau dintr-o copie externa
+  - size `175104`
+  - SHA-256 `D0D08BF340B220D904064DF4FFF87D2CD987958E760BFBE217E4CAE376C71653`
+- `ng_selfhost_clean.exe` a fost repromovat local pe `2026-04-21` din candidatul fixed-point `deferred_min_stage0.exe`, apoi reverificat pe calea canonica implicita si salvat in `%LOCALAPPDATA%\Limbaj\trust-root-cache\D0D08BF340B220D904064DF4FFF87D2CD987958E760BFBE217E4CAE376C71653`
+- artefactele canonice care trebuie sa ramana explicite in repo pentru traseul selfhost sunt:
+  - `ng_selfhost_clean.exe`
+  - `test_input.txt`
+  - `tests/reference/*.exe`
+- entrypoint-urile canonice ruleaza din nou pe calea implicita, fara `-Compiler`
 
 ## Recent Progress
 
+- checkpoint nou promovat pe `2026-04-21`:
+  - a fost adaugata infrastructura minima pentru importuri runtime amanate: `CodeImportPatchState`, `empty_code_import_patch_state(...)`, `emit_deferred_runtime_import_call(...)` si `append_deferred_runtime_import_patches(...)`
+  - schimbarea este inca infrastructurala; emitatorii builtin raman pe ruta stabila existenta pana cand conversia apelurilor IAT poate fi facuta incremental fara crash
+  - tentativa de conversie directa a `print` la ruta deferred a fost respinsa: candidatul crapa la compilarea trust root-ului cu exit `-1073741819`
+  - candidatul `deferred_min_stage0.exe == deferred_min_stage1.exe == deferred_min_stage2.exe`
+  - dupa promovare au trecut:
+    - `powershell -ExecutionPolicy Bypass -File .\run_fast_check.ps1 -Compiler .\deferred_min_stage0.exe`
+    - `powershell -ExecutionPolicy Bypass -File .\run_direct_stack.ps1 -Compiler .\deferred_min_stage0.exe`
+    - `powershell -ExecutionPolicy Bypass -File .\run_bootstrap_vertical.ps1 -Compiler .\deferred_min_stage0.exe -MaxParallel 2`
+  - `Get-FileHash ng_selfhost_clean.exe, output.exe, direct_fixed_point_selfhost_clean.exe, ngc_gen1_bootstrap.exe, ngc_gen2_bootstrap.exe -Algorithm SHA256` -> PASS, hash neschimbat `D0D08BF340B220D904064DF4FFF87D2CD987958E760BFBE217E4CAE376C71653`
+  - layout-ul PE promovat ramane `rdata_vsize = 0x4000`, `rdata_raw = 0x1200`, `headroom_floor = 11776`, `idata = 0x105000`, `bss = 0x106000`
+- checkpoint nou promovat pe `2026-04-21`:
+  - helperii PE au fost facuti bootstrapabili fara sa schimbe layout-ul promovat: `pe_rdata_rva()` intoarce explicit inceputul ferestrei `.rdata`, iar `pe_idata_rva()` / `pe_bss_rva()` pastreaza calcule plate pentru a evita candidatul stage1 invalid cu `.rdata VirtualSize = 0xFFFFF000`
+  - tentativa directa de a deriva `pe_idata_rva()` din `pe_rdata_rva()` a fost respinsa: stage0 putea fi valid sau putea crapa in functie de ruta, dar stage1 producea PE invalid; forma plata a ajuns la fixed-point
+  - candidatul `flat_pe_stage0.exe == flat_pe_stage1.exe == flat_pe_stage2.exe`
+  - dupa promovare au trecut:
+    - `powershell -ExecutionPolicy Bypass -File .\run_fast_check.ps1 -Compiler .\flat_pe_stage0.exe`
+    - `powershell -ExecutionPolicy Bypass -File .\run_direct_stack.ps1 -Compiler .\flat_pe_stage0.exe`
+    - `powershell -ExecutionPolicy Bypass -File .\run_bootstrap_vertical.ps1 -Compiler .\flat_pe_stage0.exe -MaxParallel 2`
+  - `Get-FileHash ng_selfhost_clean.exe, output.exe, direct_fixed_point_selfhost_clean.exe, ngc_gen1_bootstrap.exe, ngc_gen2_bootstrap.exe -Algorithm SHA256` -> PASS, hash neschimbat `65558CD23155FC32CEFEF6DAED03291C0CFCA8F4ECCDC52E4906A4092E1C8816`
+  - layout-ul PE promovat ramane `rdata_vsize = 0x4000`, `rdata_raw = 0x1200`, `headroom_floor = 11776`, `idata = 0x105000`, `bss = 0x106000`
+- Blocul 1 inchis operational pe `2026-04-21`:
+  - `compiled_function_schedule_count(...)` nu mai deriveaza count-ul din lungime bruta; noul `compiled_function_schedule_count_opt(...)` cere ca toate cele patru store-uri de schedule sa fie `u32` valide si paralele
+  - `u32_store_pair_count_opt(...)` contracteaza perechile `offset/target` folosite de patch-uri, RIP patch-uri si artifact stores
+  - `record_compiled_function_artifact(...)`, `start_apply_user_functions_serial(...)`, `step_apply_user_functions_serial(...)`, `validate_compiled_function_schedule_table(...)`, `validate_compiled_function_offsets(...)`, `validate_final_patch_totals(...)`, `validate_final_patch_table(...)`, `validate_final_rip_patch_table(...)` si `compile_source_to_path(...)` folosesc acum count-uri / load-uri `u32` opt pe frontierele critice
+  - helperul numeric CSV nefolosit `load_csv_i64_opt(...)` a fost scos; `rg` nu mai gaseste `buf_len(...)/4`, `load_csv_i64_opt(...)` sau citiri directe `load_u32_from_buf(..., idx * 4)` in traseul mare, in afara accessorului `load_u32_store_opt(...)`
+  - primul `run_direct_stack.ps1` pe trust root-ul vechi a produs corect un candidat nou de `175104` si a esuat la compare cu checkpoint-ul vechi; candidatul a trecut apoi `run_fast_check.ps1 -Compiler .\direct_fixed_point_selfhost_clean.exe`, `run_direct_stack.ps1 -Compiler .\direct_fixed_point_selfhost_clean.exe` si `run_bootstrap_vertical.ps1 -Compiler .\direct_fixed_point_selfhost_clean.exe -MaxParallel 2`
+  - dupa promovare au trecut din nou pe calea canonica implicita:
+    - `powershell -ExecutionPolicy Bypass -File .\run_fast_check.ps1`
+    - `powershell -ExecutionPolicy Bypass -File .\run_direct_stack.ps1`
+    - `powershell -ExecutionPolicy Bypass -File .\run_bootstrap_vertical.ps1 -MaxParallel 2`
+    - `powershell -ExecutionPolicy Bypass -File .\backup_trust_root.ps1`
+    - `powershell -ExecutionPolicy Bypass -File .\verify_canonical_repo_artifacts.ps1`
+    - `powershell -ExecutionPolicy Bypass -File .\verify_pe_layout_contract.ps1`
+  - `Get-FileHash ng_selfhost_clean.exe, output.exe, direct_fixed_point_selfhost_clean.exe, ngc_gen1_bootstrap.exe, ngc_gen2_bootstrap.exe -Algorithm SHA256` -> PASS, hash neschimbat `2E481182F44DE763413AA37FA63E80CBE1ADEB4E0B9FA0CB0B81C45A63F562DB`
+  - layout-ul PE promovat ramane `rdata_vsize = 0x4000`, `rdata_raw = 0x1200`, `headroom_floor = 11776`, `idata = 0x105000`, `bss = 0x106000`
+- checkpoint nou promovat pe `2026-04-21`:
+  - `validate_final_layout_contract(...)` nu mai calculeaza `compiled_function_schedule_code_end(...)` si `compiled_function_schedule_rdata_end(...)` inainte de `validate_compiled_function_schedule_table(...)`; capatul final de schedule este citit numai dupa contractul tabelului de schedule
+  - primul `run_direct_stack.ps1` pe trust root-ul vechi a produs corect un candidat nou si a esuat la compare cu checkpoint-ul vechi; candidatul a fost apoi reverificat cu `run_fast_check.ps1 -Compiler .\direct_fixed_point_selfhost_clean.exe`, `run_direct_stack.ps1 -Compiler .\direct_fixed_point_selfhost_clean.exe` si `run_bootstrap_vertical.ps1 -Compiler .\direct_fixed_point_selfhost_clean.exe -MaxParallel 2`
+  - dupa promovare au trecut din nou pe calea canonica implicita:
+    - `powershell -ExecutionPolicy Bypass -File .\run_fast_check.ps1`
+    - `powershell -ExecutionPolicy Bypass -File .\run_direct_stack.ps1`
+    - `powershell -ExecutionPolicy Bypass -File .\run_bootstrap_vertical.ps1 -MaxParallel 2`
+    - `powershell -ExecutionPolicy Bypass -File .\backup_trust_root.ps1`
+    - `powershell -ExecutionPolicy Bypass -File .\verify_canonical_repo_artifacts.ps1`
+    - `powershell -ExecutionPolicy Bypass -File .\verify_pe_layout_contract.ps1`
+  - `Get-FileHash ng_selfhost_clean.exe, output.exe, direct_fixed_point_selfhost_clean.exe, ngc_gen1_bootstrap.exe, ngc_gen2_bootstrap.exe -Algorithm SHA256` -> PASS, hash neschimbat `B2852B6D8712D371C8F7DCCEBB3EA9A2805AFC0505DB5CEB0ACF625EA9BB5611`
+  - layout-ul PE promovat ramane `rdata_vsize = 0x4000`, `rdata_raw = 0x1200`, `headroom_floor = 11776`, `idata = 0x105000`, `bss = 0x106000`
+- checkpoint nou promovat pe `2026-04-21`:
+  - `compile_source_to_path(...)` valideaza acum si perechea finala `patch_offsets_store` / `patch_targets_store` prin `u32_store_count_opt(...)` inainte de loop-ul final de patching; frontiera finala de patch-uri nu mai deriva `patch_count` din lungime bruta fara sa ceara count-uri `u32` valide si paralele
+  - primul `run_direct_stack.ps1` pe trust root-ul vechi a produs corect un candidat nou si a esuat la compare cu checkpoint-ul vechi; candidatul a fost apoi reverificat cu `run_direct_stack.ps1 -Compiler .\direct_fixed_point_selfhost_clean.exe` si `run_bootstrap_vertical.ps1 -Compiler .\direct_fixed_point_selfhost_clean.exe -MaxParallel 2`
+  - dupa promovare au trecut din nou pe calea canonica implicita:
+    - `powershell -ExecutionPolicy Bypass -File .\run_fast_check.ps1`
+    - `powershell -ExecutionPolicy Bypass -File .\run_direct_stack.ps1`
+    - `powershell -ExecutionPolicy Bypass -File .\run_bootstrap_vertical.ps1 -MaxParallel 2`
+    - `powershell -ExecutionPolicy Bypass -File .\backup_trust_root.ps1`
+    - `powershell -ExecutionPolicy Bypass -File .\verify_canonical_repo_artifacts.ps1`
+    - `powershell -ExecutionPolicy Bypass -File .\verify_pe_layout_contract.ps1`
+  - `Get-FileHash ng_selfhost_clean.exe, output.exe, direct_fixed_point_selfhost_clean.exe, ngc_gen1_bootstrap.exe, ngc_gen2_bootstrap.exe -Algorithm SHA256` -> PASS, hash neschimbat `021093566637B3274E9082A484F4C6F70500FB8ADFAD5CED5072DBF3C321BFBD`
+  - layout-ul PE promovat ramane `rdata_vsize = 0x4000`, `rdata_raw = 0x1200`, `headroom_floor = 11776`, `idata = 0x105000`, `bss = 0x106000`
+- checkpoint nou promovat pe `2026-04-20`:
+  - `compile_source_to_path(...)` valideaza acum explicit store-urile `u32` pentru entry import patches si pentru RIP patch-urile finale inainte de merge-ul final; frontiera de entry/import nu mai presupune doar lungimi brute in bytes, ci cere count-uri `u32` valide si paralele
+  - pasul a ramas compact, dar a produs un checkpoint nou de `172032`; layout-ul PE promovat ramane acelasi ca schema, insa payload-ul brut din `.rdata` a crescut la `0x1200`, cu `headroom_floor = 11776`
+  - dupa promovare au trecut din nou pe calea canonica implicita:
+    - `powershell -ExecutionPolicy Bypass -File .\run_fast_check.ps1`
+    - `powershell -ExecutionPolicy Bypass -File .\run_direct_stack.ps1`
+    - `powershell -ExecutionPolicy Bypass -File .\run_bootstrap_vertical.ps1 -MaxParallel 2`
+    - `powershell -ExecutionPolicy Bypass -File .\backup_trust_root.ps1`
+    - `powershell -ExecutionPolicy Bypass -File .\verify_pe_layout_contract.ps1`
+  - `Get-FileHash ng_selfhost_clean.exe, output.exe, ngc_gen1_bootstrap.exe, ngc_gen2_bootstrap.exe -Algorithm SHA256` -> PASS, hash neschimbat `C633D4D098BB5E0D7B8CAD435A614D467C020A15B25B8339F17BDB0F3650D264`
+- checkpoint nou promovat pe `2026-04-20`:
+  - apelurile IAT din entry path si din emiterea locala folosesc acum placeholdere locale cu `append_local_import_patch(...)`, iar `compile_source_to_path(...)` compune aceste patch-uri in fluxul canonic de RIP patching doar la final; pasul scoate dependenta de RVA-ul final al IAT din emiterea locala fara sa schimbe layout-ul PE promovat
+  - fixed point-ul promovat ramane `171008`, cu layout PE neschimbat: `rdata_vsize = 0x4000`, `rdata_raw = 0x1000`, `idata = 0x105000`, `bss = 0x106000`
+  - dupa promovare au trecut din nou pe calea canonica implicita:
+    - `powershell -ExecutionPolicy Bypass -File .\run_fast_check.ps1`
+    - `powershell -ExecutionPolicy Bypass -File .\run_direct_stack.ps1`
+    - `powershell -ExecutionPolicy Bypass -File .\run_bootstrap_vertical.ps1 -MaxParallel 2`
+    - `powershell -ExecutionPolicy Bypass -File .\backup_trust_root.ps1`
+    - `powershell -ExecutionPolicy Bypass -File .\verify_pe_layout_contract.ps1`
+  - `Get-FileHash ng_selfhost_clean.exe, output.exe, ngc_gen1_bootstrap.exe, ngc_gen2_bootstrap.exe -Algorithm SHA256` -> PASS, hash neschimbat `80C94FC98F21FD08BFAFA5049E68873EE9F2940E2A77A3098D8533FD8B8CF2B7`
+- checkpoint nou promovat pe `2026-04-20`:
+  - builderul PE rezerva acum explicit o fereastra de `0x4000` bytes pentru `.rdata`, iar `.idata` / `.bss` sunt mutate la `0x105000` / `0x106000`; asta inlocuieste cliff-ul imediat de 4KB cu o fereastra rezervata declarata in header, fara sa rupa fixed-point-ul
+  - `.rdata` foloseste acum `VirtualSize = 0x4000`, in timp ce payload-ul brut ramas in binarul promovat este `RawSize = 0x1000`; verifierul PE contracteaza explicit noul layout si raporteaza un `headroom_floor` de `12288` bytes
+  - referintele canonice `tests/reference/*.exe` au fost regenerate pe noul checkpoint ca sa urmeze layout-ul PE promovat si sa readuca `DIRECT REPRO` / `DIRECT CORPUS REPRO` la comparatie byte-identica
+  - dupa promovare au trecut din nou pe calea canonica implicita:
+    - `powershell -ExecutionPolicy Bypass -File .\run_fast_check.ps1`
+    - `powershell -ExecutionPolicy Bypass -File .\run_direct_stack.ps1`
+    - `powershell -ExecutionPolicy Bypass -File .\run_bootstrap_vertical.ps1 -MaxParallel 2`
+    - `powershell -ExecutionPolicy Bypass -File .\verify_pe_layout_contract.ps1`
+  - `Get-FileHash ng_selfhost_clean.exe, output.exe, ngc_gen1_bootstrap.exe, ngc_gen2_bootstrap.exe -Algorithm SHA256` -> PASS, hash neschimbat `C2D8EF2995E889543AF8F60D8ED736C5394EBBF6383070EC7528FC51F0E21B6B`
+- tentativa nepromovata pe `2026-04-20`:
+  - o intarire minima pe conversia `CSV -> u32 store` pentru patch-urile de import din `compile_source_to_path(...)` a intrat in bootstrap, dar a produs din nou un candidat de `171520` bytes
+  - `powershell -ExecutionPolicy Bypass -File .\run_fast_check.ps1 -Compiler ng_native.ng` a esuat ulterior la lansarea compilatorului bootstrap generat, iar [verify_pe_layout_contract.ps1](C:/Users/pocri/OneDrive/Desktop/limbaj/.claude/worktrees/thirsty-proskuriakova/verify_pe_layout_contract.ps1) a confirmat `PE rdata overflow` pe `direct_fast_check_compiler\output.exe`
+  - pasul a fost revertat imediat; checkpoint-ul verde activ la acel moment a ramas cel de `171008` / `3810E6A2D42B25AA2DF1ACB1AA9569FC376AEFBA2616189BF684C5C5BFE5AF0E`
+- checkpoint nou promovat pe `2026-04-20`:
+  - constantele PE pentru `.text`, `.rdata`, `.idata`, `.bss` si IAT sunt acum centralizate in helperi unici (`pe_text_rva()`, `pe_rdata_rva()`, `pe_idata_rva()`, `pe_bss_rva()`, `pe_iat_base_rva()`) in loc sa fie imprastiate in validator, patching si builder
+  - pasul este semantic neutru: layout-ul a ramas fix, dar urmatorul refactor spre RVA-uri calculate dinamic are acum un singur punct de intrare
+  - dupa promovare au trecut pe binarul nou:
+    - `powershell -ExecutionPolicy Bypass -File .\run_fast_check.ps1 -Compiler .\output.exe`
+    - `powershell -ExecutionPolicy Bypass -File .\run_direct_stack.ps1 -Compiler .\output.exe`
+    - `powershell -ExecutionPolicy Bypass -File .\run_bootstrap_vertical.ps1 -Compiler .\output.exe -MaxParallel 2`
+    - `powershell -ExecutionPolicy Bypass -File .\verify_pe_layout_contract.ps1 -Path .\output.exe`
+  - `Get-FileHash output.exe, ngc_gen1_bootstrap.exe, ngc_gen2_bootstrap.exe -Algorithm SHA256` -> PASS, hash neschimbat `3810E6A2D42B25AA2DF1ACB1AA9569FC376AEFBA2616189BF684C5C5BFE5AF0E`
+  - `.rdata` a ramas la `0xFF4`, deci headroom-ul PE ramas este tot `12` bytes
+- checkpoint nou promovat pe `2026-04-20`:
+  - `validate_compiled_function_offsets(comp)` verifica acum per-entry toata compunerea efectiva: prefixul user fata de `fn_schedule_code_starts` si sufixul builtin fata de `builtin_offset_store`
+  - `validate_final_layout_contract(...)` verifica per-entry si `executor_effective_offsets` atunci cand store-ul executor exista; validatorul final nu mai sta doar pe ancore `first/last`
+  - dupa promovare au trecut pe binarul nou:
+    - `powershell -ExecutionPolicy Bypass -File .\run_fast_check.ps1 -Compiler .\output.exe`
+    - `powershell -ExecutionPolicy Bypass -File .\run_direct_stack.ps1 -Compiler .\output.exe`
+    - `powershell -ExecutionPolicy Bypass -File .\run_bootstrap_vertical.ps1 -Compiler .\output.exe -MaxParallel 2`
+    - `powershell -ExecutionPolicy Bypass -File .\verify_pe_layout_contract.ps1 -Compiler .\output.exe`
+  - `Get-FileHash output.exe, ngc_gen1_bootstrap.exe, ngc_gen2_bootstrap.exe -Algorithm SHA256` -> PASS, hash neschimbat `94D2124A4DDBEFAFBA1FB4516AD2B6D3A3FCFC0402FC7DCBAD7C90BAC9156269`
+  - `.rdata` a ramas la `0xFF4`, deci headroom-ul PE ramas este tot `12` bytes
+- checkpoint nou promovat pe `2026-04-20`:
+  - entry stubs folosesc acum patch metadata amanat prin infrastructura canonica `append_local_import_patch(...)`, iar `compile_source_to_path(...)` compune aceste patch-uri in fluxul final de RIP patching fara helperi paraleli noi
+  - pasul a fost tinut suficient de mic cat sa ramana sub cliff-ul PE; trust root-ul nou are `.rdata = 0xFF4`, deci headroom-ul curent este `12` bytes
+  - dupa promovare au trecut:
+    - `powershell -ExecutionPolicy Bypass -File .\run_fast_check.ps1 -Compiler .\output.exe`
+    - `powershell -ExecutionPolicy Bypass -File .\run_direct_stack.ps1 -Compiler .\output.exe`
+    - `powershell -ExecutionPolicy Bypass -File .\run_bootstrap_vertical.ps1 -Compiler .\output.exe -MaxParallel 2`
+    - `powershell -ExecutionPolicy Bypass -File .\verify_pe_layout_contract.ps1 -Compiler .\output.exe`
+  - `Get-FileHash output.exe, ngc_gen1_bootstrap.exe, ngc_gen2_bootstrap.exe, direct_fixed_point_selfhost_clean.exe -Algorithm SHA256` -> PASS, hash neschimbat `46D2E4D557A87D5B871819ABE2CBB115BBBBCE7B74FFDB415DC09A178FF86C3A`
+- checkpoint nou promovat pe `2026-04-20`:
+  - toate apelurile IAT directe din runtime/entry path trec acum prin helperul unic `emit_runtime_import_call(...)`
+  - helperul este folosit in builtins, `emit_exit_process_imm32(...)` si entry stubs; write path-ul direct pentru runtime imports nu mai este imprastiat in zeci de call sites
+  - dupa promovare au trecut:
+    - `powershell -ExecutionPolicy Bypass -File .\run_fast_check.ps1 -Compiler .\output.exe`
+    - `powershell -ExecutionPolicy Bypass -File .\run_direct_stack.ps1 -Compiler .\output.exe`
+    - `powershell -ExecutionPolicy Bypass -File .\run_bootstrap_vertical.ps1 -Compiler .\output.exe -MaxParallel 2`
+    - `powershell -ExecutionPolicy Bypass -File .\backup_trust_root.ps1`
+  - `Get-FileHash ng_selfhost_clean.exe, output.exe, ngc_gen1_bootstrap.exe, ngc_gen2_bootstrap.exe -Algorithm SHA256` -> PASS, hash neschimbat `A875F029C4A86EC97487D911E97BC69E53064C9D0947D47491F77FF23AB42BBD`
+  - [verify_pe_layout_contract.ps1](C:/Users/pocri/OneDrive/Desktop/limbaj/.claude/worktrees/thirsty-proskuriakova/verify_pe_layout_contract.ps1) arata pentru trust root `.rdata = 0xFFC`, deci headroom-ul ramas pana la cliff este in continuare `4` bytes
+- checkpoint nou promovat pe `2026-04-20`:
+  - a fost introdus helperul `emit_local_import_call(...)`, care centralizeaza emiterea apelurilor IAT locale cu patch metadata in locul logicii ad-hoc din `compile_primary(...)`
+  - pasul a ramas semantic neutru pe traseul mare, dar a produs un checkpoint nou validat complet
+  - dupa promovare au trecut:
+    - `powershell -ExecutionPolicy Bypass -File .\run_fast_check.ps1 -Compiler .\output.exe`
+    - `powershell -ExecutionPolicy Bypass -File .\run_direct_stack.ps1 -Compiler .\output.exe`
+    - `powershell -ExecutionPolicy Bypass -File .\run_bootstrap_vertical.ps1 -Compiler .\output.exe -MaxParallel 2`
+    - `powershell -ExecutionPolicy Bypass -File .\backup_trust_root.ps1`
+  - `Get-FileHash ng_selfhost_clean.exe, output.exe, ngc_gen1_bootstrap.exe, ngc_gen2_bootstrap.exe -Algorithm SHA256` -> PASS, hash neschimbat `C83739849D51D7599FB166CEC7AFD150EB641BC3A0718C8583037245E5E6AB60`
+  - [verify_pe_layout_contract.ps1](C:/Users/pocri/OneDrive/Desktop/limbaj/.claude/worktrees/thirsty-proskuriakova/verify_pe_layout_contract.ps1) arata acum pentru trust root `.rdata = 0xFFC`, deci headroom-ul ramas pana la cliff este `4` bytes
+- pas Axiom / Blocul 1 pe prefixul user din `effective_offsets`:
+  - `validate_compiled_function_offsets(comp)` verifica acum per-entry fiecare intrare din prefixul user fata de `fn_schedule_code_starts`
+  - `validate_final_layout_contract(...)` nu mai dubleaza pentru store-ul final ancorele `first/last` pe acelasi prefix user; ancorele de executor si builtin raman acolo
+  - checkpoint-ul promovat curent a fost reverificat pe calea canonica cu:
+    - `powershell -ExecutionPolicy Bypass -File .\run_fast_check.ps1 -Compiler .\output.exe`
+    - `powershell -ExecutionPolicy Bypass -File .\run_direct_stack.ps1 -Compiler .\output.exe`
+    - `powershell -ExecutionPolicy Bypass -File .\run_bootstrap_vertical.ps1 -Compiler .\output.exe -MaxParallel 2`
+  - `backup_trust_root.ps1` a salvat trust root-ul local promovat in cache pe hash-ul `951440BB4B291474B5A7CDB418607F9FE717A4D69FEDE2E929BA9B1C0B79B7A8`
+- checkpoint nou promovat pe `2026-04-20`:
+  - a fost eliminata infrastructura moarta de cursor CSV pentru stringuri (`LookupStrCursor`, `csv_next_str_opt(...)` si helper-ele `load_next_*` nefolosite)
+  - trust root-ul promovat curent este acum `171520`
+  - dupa promovare au trecut din nou:
+    - `powershell -ExecutionPolicy Bypass -File .\run_fast_check.ps1`
+    - `powershell -ExecutionPolicy Bypass -File .\run_direct_stack.ps1`
+    - `powershell -ExecutionPolicy Bypass -File .\run_bootstrap_vertical.ps1 -MaxParallel 2`
+  - `Get-FileHash ng_selfhost_clean.exe, output.exe, ngc_gen1_bootstrap.exe, ngc_gen2_bootstrap.exe -Algorithm SHA256` -> PASS, hash neschimbat `6B3987759755AFF3145A040CE85C5FF820C0576EF11F953E3FDAFB6055D9EFF9`
+- pas Axiom / Blocul 1 pe count-ul functiilor:
+  - `function_name_count(comp)` prefera acum count-ul canonic din store-ul `fn_params`, nu scanarea CSV a lui `fn_names`, atunci cand store-ul `u32` este valid
+  - `validate_function_metadata_tables(comp)` ramane ancorat explicit in `csv_count(comp.fn_names)`, deci count-ul canonic este tot verificat impotriva tabelului de nume inainte de queue build
+- documentare canonica a misiunii pe `2026-04-20`:
+  - directia "eliminam buguri pe toata suprafata declarata" este acum codificata explicit in [BUG_ELIMINATION_STACK.md](C:/Users/pocri/OneDrive/Desktop/limbaj/.claude/worktrees/thirsty-proskuriakova/BUG_ELIMINATION_STACK.md)
+  - documentul este legat din `README.md`, `STATUS.md`, `NG_TO_AXIOM_ROADMAP.md`, `SEMANTICS_CORE.md`, `BUG_FREE_ACCEPTANCE.md` si `TCB.md`
+- igiena workspace-ului pe `2026-04-20`:
+  - scratch-ul local `_tmp_*`, `_recovery*`, `recovery_*`, `_probe.c` si `tests/reference/.build` are acum cleanup dedicat prin [clean_workspace_scratch.ps1](C:/Users/pocri/OneDrive/Desktop/limbaj/.claude/worktrees/thirsty-proskuriakova/clean_workspace_scratch.ps1)
+  - `.gitignore` ignora explicit aceste artefacte ca sa nu mai polueze statusul canonic
+- artefactele canonice pastrate in repo au acum verificare dedicata prin [verify_canonical_repo_artifacts.ps1](C:/Users/pocri/OneDrive/Desktop/limbaj/.claude/worktrees/thirsty-proskuriakova/verify_canonical_repo_artifacts.ps1), astfel trust root-ul local promovat, fixture-ul `test_input.txt` si executabilele din `tests/reference/` pot fi validate fara inspectie manuala
+- contractul PE canonic are acum verificare dedicata prin [verify_pe_layout_contract.ps1](C:/Users/pocri/OneDrive/Desktop/limbaj/.claude/worktrees/thirsty-proskuriakova/verify_pe_layout_contract.ps1), inclusiv gard pentru cliff-ul actual de headroom din `.rdata`
 - ultimul checkpoint verde promovat inainte de hardening-ul curent a inchis Faza B Axiom pentru metadata de job queue:
   - `job_queue_param_starts` a fost eliminat complet din `Compiler`
   - dupa acel pas au trecut din nou:
@@ -49,6 +237,28 @@ Acest fisier ramane sursa operationala de adevar pentru worktree-ul curent.
   - repo-ul nu mai contine host-ul Rust, `Cargo.toml`, `Cargo.lock`, `src/*.rs`, `target/` sau directoarele/artifactele `rust_*`
   - au fost eliminate si suitele / referintele `tooling_host_*` si `host_bridge_*` ca sa nu mai existe doua trasee concurente
   - documentele active au fost rescrise ca selfhost-only
+- pas Axiom / Blocul 1 pe metadata numerica de functii:
+  - `fn_params`, `fn_param_starts`, `fn_bodies` si `fn_local_counts` folosesc acum store-uri canonice `u32`, nu CSV
+  - `build_compiled_function_job_queue(...)` fail-closed pe `validate_function_metadata_tables(...)` inainte sa porneasca planificarea
+  - traseul mare nu mai citeste metadata numerica de functii prin `csv_get_opt(...)` sau cursoare `csv_next_i64_opt(...)`
+- hardening operational pe suitele canonice:
+  - referintele lipsa pentru `DIRECT REPRO` si `DIRECT CORPUS REPRO` au fost regenerate sub `tests/reference/` si scoase explicit din `*.exe` ignore
+  - fixture-ul `test_input.txt` cerut de corpus-ul paralel a fost readus in repo, astfel `run_bootstrap_vertical.ps1` nu mai depinde de artefacte locale disparute
+- candidat selfhost reverificat pe `2026-04-20` cu compilerul local `output.exe`:
+  - `powershell -ExecutionPolicy Bypass -File .\run_fast_check.ps1 -Compiler .\output.exe` -> PASS
+  - `powershell -ExecutionPolicy Bypass -File .\run_direct_stack.ps1 -Compiler .\output.exe` -> PASS
+  - `powershell -ExecutionPolicy Bypass -File .\run_bootstrap_vertical.ps1 -Compiler .\output.exe -MaxParallel 2` -> PASS
+  - `Get-FileHash output.exe, ngc_gen1_bootstrap.exe, ngc_gen2_bootstrap.exe -Algorithm SHA256` -> PASS, hash neschimbat `6B3987759755AFF3145A040CE85C5FF820C0576EF11F953E3FDAFB6055D9EFF9`
+- promovare operationala a trust root-ului pe `2026-04-20`:
+  - `Copy-Item .\output.exe .\ng_selfhost_clean.exe` -> PASS
+  - `powershell -ExecutionPolicy Bypass -File .\backup_trust_root.ps1` -> PASS
+  - `powershell -ExecutionPolicy Bypass -File .\run_fast_check.ps1` -> PASS
+  - `powershell -ExecutionPolicy Bypass -File .\run_direct_stack.ps1` -> PASS
+  - `powershell -ExecutionPolicy Bypass -File .\run_bootstrap_vertical.ps1 -MaxParallel 2` -> PASS
+  - `Get-FileHash ng_selfhost_clean.exe, output.exe, ngc_gen1_bootstrap.exe, ngc_gen2_bootstrap.exe -Algorithm SHA256` -> PASS, hash neschimbat `6B3987759755AFF3145A040CE85C5FF820C0576EF11F953E3FDAFB6055D9EFF9`
+- tentativa de inchidere completa per-entry pentru `effective_offsets` pe `2026-04-20` nu a fost promovata:
+  - extinderea directa a validatorului final a reintrodus crash-ul de selfcompile in `DIRECT STACK: direct_fixed_point`
+  - worktree-ul a fost readus la checkpoint-ul verde `172032`, reverificat imediat prin `run_direct_stack.ps1` si `run_bootstrap_vertical.ps1 -MaxParallel 2`
 - pas Axiom / Blocul 1 pe traseul mare:
   - hot path-ul mare nu mai foloseste apeluri CSV brute in punctele critice noi atinse in runda asta; au fost introduse accessori cursor pentru tabelele canonice `fn_*` si `builtin_offsets`
   - `find_func_opt(...)`, build-ul de job queue si apply-ul pentru builtin offsets trec acum prin accessori stabili, nu prin `csv_next_*` direct
@@ -117,12 +327,6 @@ Acest fisier ramane sursa operationala de adevar pentru worktree-ul curent.
   - `append_csv_i64_to_u32_store(...)` promoveaza acum CSV-urile locale `patch/rdata/import` in store-uri `u32` intr-o singura trecere, fara pre-scan `csv_count(...)`
   - `compile_function_planned(...)` deriveaza acum `patch_count_local`, `rdata_patch_count_local` si `import_patch_count_local` din store-urile offset deja emise
   - `validate_compiled_function_contract(...)` verifica acum paritatea CSV atat pe listele locale de `offset`, cat si pe cele de `target`, deci mismatch-urile CSV/store raman contractate fara sa reintroduca count-ul CSV in write path-ul local
-- candidat selfhost reverificat pe `2026-04-17`:
-  - `.\ng_selfhost_clean.exe ng_native.ng` -> PASS, produce `output.exe` de `171520`
-  - `powershell -ExecutionPolicy Bypass -File .\run_fast_check.ps1` -> PASS
-  - `powershell -ExecutionPolicy Bypass -File .\run_direct_stack.ps1 -Compiler ng_native.ng` -> PASS
-  - `powershell -ExecutionPolicy Bypass -File .\run_bootstrap_vertical.ps1 -Compiler ng_native.ng -MaxParallel 2` -> PASS
-  - `GetBinaryType(output.exe)` / `GetBinaryType(ngc_gen1_bootstrap.exe)` / `GetBinaryType(ngc_gen2_bootstrap.exe)` -> PASS (`type = 6`, PE x64 valid)
 - fundamentul de proiect pentru claim-uri tari de corectitudine este acum explicit in repo:
   - [BUG_FREE_ACCEPTANCE.md](C:/Users/pocri/OneDrive/Desktop/limbaj/.claude/worktrees/thirsty-proskuriakova/BUG_FREE_ACCEPTANCE.md) defineste acceptance gates pentru orice claim `bug-free`
   - [TCB.md](C:/Users/pocri/OneDrive/Desktop/limbaj/.claude/worktrees/thirsty-proskuriakova/TCB.md) enumera trust base-ul actual si gaurile care trebuie eliminate
@@ -131,71 +335,51 @@ Acest fisier ramane sursa operationala de adevar pentru worktree-ul curent.
   - worktree-ul a fost curatat de artefacte generate si inchis intr-un commit curat
   - cleanup-ul a eliminat si copia locala `ng_selfhost_clean.exe`, fara sa atinga metadatele checkpoint-ului canonic din documente
   - au fost adaugate [restore_trust_root.ps1](C:/Users/pocri/OneDrive/Desktop/limbaj/.claude/worktrees/thirsty-proskuriakova/restore_trust_root.ps1) si [backup_trust_root.ps1](C:/Users/pocri/OneDrive/Desktop/limbaj/.claude/worktrees/thirsty-proskuriakova/backup_trust_root.ps1) pentru a restaura/cacha viitoarele copii locale ale trust root-ului in `%LOCALAPPDATA%\Limbaj\trust-root-cache`
-- checkpoint nou promovat pe `2026-04-16`:
+- checkpoint promovat anterior pe `2026-04-16`:
   - `ng_selfhost_clean.exe == output.exe == ngc_gen1_bootstrap.exe == ngc_gen2_bootstrap.exe`
   - size `161280`
   - SHA-256 `25DCECD94D17BBBF1BBCFFE36EC009F19BC7E5B7094C061D70E56A0FA3541012`
 
 ## Known Bugs / Risks
 
-- pasul oficial ramas este Blocul 1:
-  - hardening pe traseul mare `ng_native.ng -> ng_native.ng`
-  - in special `validate_final_layout_contract(...)`
-  - validari de patch / rdata / import
-  - reducerea ultimelor lookup-uri si scanari CSV directe
-- checkpoint-ul promovat ramas canonic este inca cel de `161280`; pana la promovarea candidatului `171520`, `run_direct_stack.ps1` si `run_bootstrap_vertical.ps1` fara `-Compiler ng_native.ng` compara in continuare impotriva trust root-ului vechi
-- trust root-ul canonic lipseste acum local din workspace; pana la restaurarea lui prin `restore_trust_root.ps1` sau dintr-o copie externa, scripturile canonice nu pot fi rerulate in acest worktree
+- Blocul 1 de hardening pe traseul mare este inchis operational pentru suprafata canonica curenta
 - compare-ul fixed-point mare pentru `ng_native.ng` nu mai ruleaza prin `#!ng-tool suite`; runner-ul generic ramane bun pentru suite leaf si compare-urile mici, dar cazul mare este orchestrat direct din PowerShell
 - `run_direct_stack.ps1` si `run_bootstrap_vertical.ps1` reutilizeaza directoare / artefacte locale; verdictul canonic trebuie luat din rulare seriala, nu din doua scripturi pornite in paralel peste acelasi workspace
-- builderul PE foloseste inca layout fix pentru sectiunile `.rdata` / `.idata`; orice schimbare care impinge `.rdata` peste 4096 bytes poate reintroduce `ERROR_BAD_EXE_FORMAT` pana cand RVA-urile de sectiune devin dinamice
-- trust root-ul vechi ramane sensibil la schimbari aparent ne-semantice in zonele fierbinti; comentarii sau diagnostice noi in hardening-ul mare trebuie compactate si reverificate imediat cu `.\ng_selfhost_clean.exe ng_native.ng`
-- validarea completa per-entry a compunerii `effective_offsets` ramane in afara bugetului curent al layout-ului PE fix; forma verde curenta contracteaza doar ancorele de frontiera pentru prefixul user si sufixul builtin
-- worktree-ul nu este inca eligibil pentru vreun claim `bug-free`; acceptance gates din `BUG_FREE_ACCEPTANCE.md` raman rosii pana cand dispar riscurile de corectitudine de mai sus si checkpoint-ul nou este promovat
+- builderul PE foloseste inca layout fix pentru sectiunile `.rdata` / `.idata`; fereastra rezervata pentru `.rdata` este acum `0x4000`, iar pasul ramas util este eliminarea completa a acestei ferestre fixe prin RVA-uri calculate dinamic
+- verifier-ul PE arata acum pentru checkpoint-ul promovat `rdata_vsize = 0x4000`, `rdata_raw = 0x1200` si `headroom_floor = 11776`; orice schimbare care creste payload-ul brut din `.rdata` trebuie verificata imediat cu [verify_pe_layout_contract.ps1](C:/Users/pocri/OneDrive/Desktop/limbaj/.claude/worktrees/thirsty-proskuriakova/verify_pe_layout_contract.ps1)
+- s-a confirmat din nou pe `2026-04-20` ca un hardening mic in entry path poate reintroduce imediat candidatul invalid de `171520` bytes; largirea ferestrei a deblocat checkpoint-ul curent, dar nu inlocuieste refactorul spre layout PE dinamic
+- trust root-ul promovat curent ramane sensibil la schimbari aparent ne-semantice in zonele fierbinti; comentarii sau diagnostice noi in hardening-ul mare trebuie compactate si reverificate prin entrypoint-urile PowerShell canonice, care folosesc loguri detasate pentru buildurile mari
+- worktree-ul nu este inca eligibil pentru vreun claim `bug-free`; acceptance gates din `BUG_FREE_ACCEPTANCE.md` raman rosii pana cand dispar riscurile de corectitudine de mai sus
 - documentele istorice pot pastra referinte la fostul host Rust; acestea sunt arhivistice, nu operationale
 
 ## Last Verified
 
-Checkpoint-ul promovat ramas canonic:
+Checkpoint-ul promovat curent, verificat pe `2026-04-21`:
 
-- `ng_selfhost_clean.exe == output.exe == ngc_gen1_bootstrap.exe == ngc_gen2_bootstrap.exe`
-- size `161280`
-- SHA-256 `25DCECD94D17BBBF1BBCFFE36EC009F19BC7E5B7094C061D70E56A0FA3541012`
-
-Candidatul curent verificat pe `2026-04-17`:
-
-- `.\ng_selfhost_clean.exe ng_native.ng` -> PASS, produce `output.exe` de `171520`
 - `powershell -ExecutionPolicy Bypass -File .\run_fast_check.ps1` -> PASS
-- `powershell -ExecutionPolicy Bypass -File .\run_direct_stack.ps1 -Compiler ng_native.ng` -> PASS
-- `powershell -ExecutionPolicy Bypass -File .\run_bootstrap_vertical.ps1 -Compiler ng_native.ng -MaxParallel 2` -> PASS
-- `GetBinaryType(output.exe)` / `GetBinaryType(ngc_gen1_bootstrap.exe)` / `GetBinaryType(ngc_gen2_bootstrap.exe)` -> PASS (`type = 6`, PE x64 valid)
-- `Get-FileHash output.exe, ngc_gen1_bootstrap.exe, ngc_gen2_bootstrap.exe -Algorithm SHA256` -> PASS, hash neschimbat `417188498A10B9219924E12B7804463A780EC5E73ACBBF1902B4898660A17CBD`
+- `powershell -ExecutionPolicy Bypass -File .\run_direct_stack.ps1` -> PASS
+- `powershell -ExecutionPolicy Bypass -File .\run_bootstrap_vertical.ps1 -MaxParallel 2` -> PASS
+- `powershell -ExecutionPolicy Bypass -File .\backup_trust_root.ps1` -> PASS
+- `powershell -ExecutionPolicy Bypass -File .\verify_canonical_repo_artifacts.ps1` -> PASS
+- `Get-FileHash ng_selfhost_clean.exe, output.exe, direct_fixed_point_selfhost_clean.exe, ngc_gen1_bootstrap.exe, ngc_gen2_bootstrap.exe -Algorithm SHA256` -> PASS, hash neschimbat `D0D08BF340B220D904064DF4FFF87D2CD987958E760BFBE217E4CAE376C71653`
+- `powershell -ExecutionPolicy Bypass -File .\verify_pe_layout_contract.ps1` -> PASS (`rdata_vsize = 0x4000`, `rdata_raw = 0x1200`, `headroom_floor = 11776`)
 
 Checkpoint asociat:
 
-- `output.exe == direct_stack_compiler\output.exe == direct_fixed_point_selfhost_clean.exe == ngc_gen1_bootstrap.exe == ngc_gen2_bootstrap.exe`
+- `ng_selfhost_clean.exe == output.exe == direct_stack_compiler\output.exe == direct_fixed_point_selfhost_clean.exe == ngc_gen1_bootstrap.exe == ngc_gen2_bootstrap.exe`
 - `bootstrap_gen1\output.exe == bootstrap_gen2\output.exe == output.exe`
-- size `171520`
-- SHA-256 `417188498A10B9219924E12B7804463A780EC5E73ACBBF1902B4898660A17CBD`
+- size `175104`
+- SHA-256 `D0D08BF340B220D904064DF4FFF87D2CD987958E760BFBE217E4CAE376C71653`
 
 ## Next Steps
 
-1. Restaureaza `ng_selfhost_clean.exe` in workspace din `%LOCALAPPDATA%\Limbaj\trust-root-cache` prin [restore_trust_root.ps1](C:/Users/pocri/OneDrive/Desktop/limbaj/.claude/worktrees/thirsty-proskuriakova/restore_trust_root.ps1) sau dintr-o copie externa valida.
-2. Dupa restaurare, ruleaza [backup_trust_root.ps1](C:/Users/pocri/OneDrive/Desktop/limbaj/.claude/worktrees/thirsty-proskuriakova/backup_trust_root.ps1) ca sa fixezi o copie locala in afara worktree-ului.
-3. Reia Blocul 1 exact din checkpoint-ul verde de mai sus, numai pe `ng_native.ng`.
-4. Pastreaza [BUG_FREE_ACCEPTANCE.md](C:/Users/pocri/OneDrive/Desktop/limbaj/.claude/worktrees/thirsty-proskuriakova/BUG_FREE_ACCEPTANCE.md), [TCB.md](C:/Users/pocri/OneDrive/Desktop/limbaj/.claude/worktrees/thirsty-proskuriakova/TCB.md) si [SEMANTICS_CORE.md](C:/Users/pocri/OneDrive/Desktop/limbaj/.claude/worktrees/thirsty-proskuriakova/SEMANTICS_CORE.md) sincronizate cu orice pas care atinge corectitudinea sau suprafata suportata.
-5. Stabilizeaza contractul mare de layout final:
-   - `validate_final_layout_contract(...)`
-   - `validate_final_patch_table(...)`
-   - `validate_final_rip_patch_table(...)`
-6. Elimina ultimele lookup-uri / scanari CSV directe din traseul mare fara a reintroduce metadata duplicate.
-7. Inchide explicit blocantele din acceptance gates:
-   - validare completa per-entry pentru `effective_offsets`
-   - builder PE fara cliff fix pe `.rdata` / `.idata`
-   - promovarea oficiala a checkpoint-ului `171520` sau a succesorului lui
-8. Dupa fiecare pas relevant, reruleaza numai suitele canonice selfhost:
+1. Inchide blocantul ramas din acceptance gates: builder PE fara cliff fix pe `.rdata` / `.idata`, cu RVA-uri calculate dinamic.
+2. Pastreaza [BUG_FREE_ACCEPTANCE.md](C:/Users/pocri/OneDrive/Desktop/limbaj/.claude/worktrees/thirsty-proskuriakova/BUG_FREE_ACCEPTANCE.md), [TCB.md](C:/Users/pocri/OneDrive/Desktop/limbaj/.claude/worktrees/thirsty-proskuriakova/TCB.md) si [SEMANTICS_CORE.md](C:/Users/pocri/OneDrive/Desktop/limbaj/.claude/worktrees/thirsty-proskuriakova/SEMANTICS_CORE.md) sincronizate cu orice pas care atinge corectitudinea sau suprafata suportata.
+3. Dupa fiecare pas relevant, reruleaza numai suitele canonice selfhost:
    - `run_fast_check.ps1`
    - `run_direct_stack.ps1`
    - `run_bootstrap_vertical.ps1 -MaxParallel 2`
+4. Daca hash-ul checkpoint-ului se schimba din nou, ruleaza imediat [backup_trust_root.ps1](C:/Users/pocri/OneDrive/Desktop/limbaj/.claude/worktrees/thirsty-proskuriakova/backup_trust_root.ps1) ca sa mentii trust root-ul restaurabil din cache.
 
 ## Update Rule
 

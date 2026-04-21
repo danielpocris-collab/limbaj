@@ -8,6 +8,24 @@ Scop: acest fisier enumera baza minima de incredere pentru claim-urile de corect
 - Orice claim de corectitudine inseamna `corect modulo TCB-ul si assumptions de mai jos`.
 - Directia corecta este micsorarea TCB-ului, nu mascarea lui.
 
+## Misiunea proiectului
+
+Proiectul nu urmareste doar un limbaj mai safe in izolare.
+
+Directia oficiala este construirea unui sistem care elimina buguri pe toata suprafata declarata:
+
+- program
+- compiler
+- runtime
+- toolchain
+- frontiere externe
+- concurenta
+- timp
+- distributie
+- securitate
+
+Acest fisier exista tocmai pentru ca orice astfel de claim trebuie facut riguros: suprafata exacta si baza minima de incredere trebuie enumerate, nu lasate implicite.
+
 ## Tinta Curenta Suportata
 
 TCB-ul de mai jos se refera doar la:
@@ -22,6 +40,8 @@ TCB-ul de mai jos se refera doar la:
 ### 1. Trust Root Promovat
 
 - `ng_selfhost_clean.exe`
+- size `175104`
+- SHA-256 `D0D08BF340B220D904064DF4FFF87D2CD987958E760BFBE217E4CAE376C71653`
 
 Acesta este checkpoint-ul executabil de la care porneste traseul canonic.
 
@@ -89,11 +109,9 @@ Orice schimbare noua trebuie sa respecte:
 
 ## Gauri Curente De Incredere
 
-Pe `2026-04-17`, TCB-ul curent ramane mai mare decat tinta din motive documentate:
+Pe `2026-04-21`, TCB-ul curent ramane mai mare decat tinta din motive documentate:
 
-- checkpoint-ul promovat oficial este inca `ng_selfhost_clean.exe` de `161280`, iar candidatul `171520` este doar validat, nu promovat
 - builderul PE depinde inca de layout fix pentru `.rdata` / `.idata`
-- validarea completa a compunerii `effective_offsets` nu este inca inchisa
 - verdictul canonic trebuie luat din rulare seriala fiindca scripturile pot reutiliza aceleasi directoare locale
 
 Aceste puncte trebuie eliminate inaintea oricarui claim puternic de corectitudine.

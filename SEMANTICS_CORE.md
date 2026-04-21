@@ -7,6 +7,26 @@ Scop: acest fisier fixeaza core-ul semantic minim pentru care putem discuta seri
 - Daca un comportament nu este definit aici sau trimis explicit aici din alte documente canonice, el nu intra in claim-ul tare de corectitudine.
 - `Semantics Core` este suprafata care trebuie inghetata inainte de proof, validation puternic si acceptance final.
 
+## Misiunea proiectului
+
+Misiunea proiectului este mai larga decat un limbaj safe in izolare.
+
+Scopul oficial este construirea unui sistem care elimina buguri pe toata suprafata declarata:
+
+- program
+- compiler
+- runtime
+- toolchain
+- frontiere externe
+- concurenta
+- timp
+- distributie
+- securitate
+
+`Semantics Core` defineste stratul semantic canonic din acest stack mai larg de corectitudine.
+
+Cu alte cuvinte, acest fisier nu descrie intreaga misiune a proiectului, ci partea minima de semantica care trebuie inghetata pentru ca restul claim-urilor sa poata fi facute riguros.
+
 ## Suprafata Vizata
 
 Core-ul semantic vizat acopera:

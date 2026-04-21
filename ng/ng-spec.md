@@ -15,6 +15,18 @@ ng is a systems language designed to replace C, C++, and Rust for all layers:
 - Distributed systems
 - Cryptographic infrastructure
 
+ng is not only a language in the narrow sense.
+It is intended to sit at the center of a correctness stack that eliminates bugs across the declared surface:
+- program logic
+- compiler
+- runtime
+- toolchain
+- external boundaries
+- concurrency
+- time
+- distribution
+- security
+
 **Core principles:**
 1. Zero hidden cost — every allocation, copy, and effect is visible in the type
 2. Zero undefined behavior — illegal states are unrepresentable

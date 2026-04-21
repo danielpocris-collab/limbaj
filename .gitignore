@@ -18,6 +18,9 @@
 # Generated binaries
 *.exe
 !ng_selfhost_clean.exe
+!/tests/reference/
+!/tests/reference/*.exe
+/tests/reference/.build/
 
 # Generated build and probe directories
 /axiom_*/
@@ -31,3 +34,9 @@
 /probe_*/
 /promoted*
 /tmp_*/
+
+# Local recovery and scratch artifacts
+/_tmp_*
+/_probe.c
+/_recovery*
+/recovery_*
