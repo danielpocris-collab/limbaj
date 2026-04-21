@@ -1,6 +1,6 @@
-# Limbaj
+# Next Gen
 
-Selfhosted compiler worktree on the `ng -> Axiom` path.
+Self-hosted compiler worktree for the `Next Gen -> Axiom` path.
 
 ## Project Mission
 

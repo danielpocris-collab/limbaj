@@ -1,8 +1,8 @@
-# Contributing to NG
+# Contributing to Next Gen
 
 Thank you for your interest in contributing.
 
-NG is a proprietary language and compiler project. Contributions are accepted under strict terms.
+Next Gen is a proprietary language and compiler project. Contributions are accepted under strict terms.
 
 ## By contributing, you agree to the following:
 
