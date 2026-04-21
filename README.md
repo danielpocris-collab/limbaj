@@ -1,6 +1,8 @@
 # Next Gen
 
-Self-hosted compiler worktree for the `Next Gen -> Axiom` path.
+Self-hosted compiler worktree for `Next Gen`.
+
+`Axiom` is the target direction for the project, not the public name of the language.
 
 ## Project Mission
 
