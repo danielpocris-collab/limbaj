@@ -1,0 +1,25 @@
+*.ps1 linguist-vendored
+*.c linguist-vendored
+*.exe linguist-vendored
+*.obj linguist-vendored
+*.md linguist-documentation
+
+tests/reference/** linguist-vendored
+tests/programs/** linguist-vendored
+bootstrap_gen1/** linguist-vendored
+bootstrap_gen2/** linguist-vendored
+direct_fast_check_compiler/** linguist-vendored
+direct_fixed_point_compiler/** linguist-vendored
+direct_parallel_case_buf_native/** linguist-vendored
+direct_parallel_case_compiler_ops/** linguist-vendored
+direct_parallel_case_csv_stress/** linguist-vendored
+direct_parallel_case_exit0/** linguist-vendored
+direct_parallel_case_exit42/** linguist-vendored
+direct_parallel_case_fileio_native/** linguist-vendored
+direct_parallel_case_strops_native/** linguist-vendored
+direct_parallel_case_struct_native/** linguist-vendored
+direct_stack_compiler/** linguist-vendored
+direct_vertical_trusted/** linguist-vendored
+dynamic_selfhost_gen1/** linguist-vendored
+manual_stage2/** linguist-vendored
+_tool_logs/** linguist-vendored
